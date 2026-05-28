@@ -1,0 +1,28 @@
+plugins:
+  - name: cutepower
+    ownership: first_party_submodule
+    source:
+      type: git_submodule
+      path: sources/submodules/cutepower
+      remote: git@github.com:Jichao0101/cutepower.git
+      branch: main
+      commit: 5a87259238b31cacb27f29f59d3390690045c9b1
+    runtime:
+      codex_plugin_path: /home/jichao/.codex/plugins/cutepower
+      marketplace: personal-local
+      marketplace_source_path: ./.codex/plugins/cutepower
+    manifest: sources/submodules/cutepower/.codex-plugin/plugin.json
+
+  - name: subpower
+    ownership: first_party_submodule
+    source:
+      type: git_submodule
+      path: sources/submodules/subpower
+      remote: git@github.com:Jichao0101/subpower.git
+      branch: main
+      commit: 34068af4aa45ac4c2bc1bb830a63d56239679489
+    runtime:
+      codex_plugin_path: /home/jichao/.codex/plugins/subpower
+      marketplace: personal-local
+      marketplace_source_path: ./.codex/plugins/subpower
+    manifest: sources/submodules/subpower/.codex-plugin/plugin.json

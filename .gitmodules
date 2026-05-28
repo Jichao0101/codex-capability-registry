@@ -1,0 +1,6 @@
+[submodule "sources/submodules/cutepower"]
+	path = sources/submodules/cutepower
+	url = git@github.com:Jichao0101/cutepower.git
+[submodule "sources/submodules/subpower"]
+	path = sources/submodules/subpower
+	url = git@github.com:Jichao0101/subpower.git

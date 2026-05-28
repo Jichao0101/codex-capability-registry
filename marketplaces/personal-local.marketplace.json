@@ -1,0 +1,32 @@
+{
+  "name": "personal-local",
+  "interface": {
+    "displayName": "Personal Local"
+  },
+  "plugins": [
+    {
+      "name": "cutepower",
+      "source": {
+        "source": "local",
+        "path": "./.codex/plugins/cutepower"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "subpower",
+      "source": {
+        "source": "local",
+        "path": "./.codex/plugins/subpower"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

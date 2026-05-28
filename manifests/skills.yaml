@@ -1,0 +1,145 @@
+skills:
+  - name: karpathy-guidelines
+    ownership: first_party_embedded
+    source:
+      type: embedded
+      path: skills/karpathy-guidelines
+      imported_from: /home/jichao/.agents/skills-backup-20260528134913/karpathy-guidelines
+      version: registry-baseline
+    runtime:
+      skill_path: /home/jichao/.agents/skills/karpathy-guidelines
+      link_target: /mnt/d/codex-capability-registry/skills/karpathy-guidelines
+    manifest: skills/karpathy-guidelines/SKILL.md
+
+  - name: lark-doc-to-obsidian
+    ownership: first_party_embedded
+    source:
+      type: embedded
+      path: skills/lark-doc-to-obsidian
+      imported_from: /home/jichao/.agents/skills-backup-20260528134913/lark-doc-to-obsidian
+      version: registry-baseline
+    runtime:
+      skill_path: /home/jichao/.agents/skills/lark-doc-to-obsidian
+      link_target: /mnt/d/codex-capability-registry/skills/lark-doc-to-obsidian
+    manifest: skills/lark-doc-to-obsidian/SKILL.md
+
+  - name: lark-shared
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-shared
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-shared
+  - name: lark-openapi-explorer
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-openapi-explorer
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-openapi-explorer
+  - name: lark-calendar
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-calendar
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-calendar
+  - name: lark-im
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-im
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-im
+  - name: lark-skill-maker
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-skill-maker
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-skill-maker
+  - name: lark-whiteboard
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-whiteboard
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-whiteboard
+  - name: lark-contact
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-contact
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-contact
+  - name: lark-doc
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-doc
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-doc
+  - name: lark-base
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-base
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-base
+  - name: lark-drive
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-drive
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-drive
+  - name: lark-minutes
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-minutes
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-minutes
+  - name: lark-vc
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-vc
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-vc
+  - name: lark-sheets
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-sheets
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-sheets
+  - name: lark-wiki
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-wiki
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-wiki
+  - name: lark-event
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-event
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-event
+  - name: lark-task
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-task
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-task
+  - name: lark-workflow-meeting-summary
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-workflow-meeting-summary
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-workflow-meeting-summary
+  - name: lark-mail
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-mail
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-mail
+  - name: lark-workflow-standup-report
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/lark-workflow-standup-report
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-workflow-standup-report
+  - name: profile_model_pipeline_and_compare_baseline
+    ownership: third_party_external
+    source:
+      type: external_runtime_directory
+      path: /home/jichao/.agents/skills/profile_model_pipeline_and_compare_baseline
+      restore_from: /home/jichao/.agents/skills-backup-20260528134913/profile_model_pipeline_and_compare_baseline
