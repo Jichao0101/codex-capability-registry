@@ -7,7 +7,7 @@ AGENTS_SKILLS_DIR="${AGENTS_SKILLS_DIR:-/home/jichao/.agents/skills}"
 THIRD_PARTY_BACKUP_DIR="${THIRD_PARTY_BACKUP_DIR:-/home/jichao/.agents/skills-backup-20260528134913}"
 
 FIRST_PARTY_PLUGINS=(cutepower subpower)
-FIRST_PARTY_SKILLS=(karpathy-guidelines lark-doc-to-obsidian)
+FIRST_PARTY_SKILLS=(karpathy-guidelines lark-doc-to-obsidian module-comment-and-naming-governance)
 THIRD_PARTY_SKILLS=(
   lark-shared
   lark-openapi-explorer

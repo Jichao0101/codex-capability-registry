@@ -53,6 +53,7 @@ check_plugin cutepower
 check_plugin subpower
 check_first_party_skill karpathy-guidelines
 check_first_party_skill lark-doc-to-obsidian
+check_first_party_skill module-comment-and-naming-governance
 
 for skill in \
   lark-shared lark-openapi-explorer lark-calendar lark-im lark-skill-maker \

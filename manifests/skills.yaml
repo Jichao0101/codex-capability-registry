@@ -23,6 +23,18 @@ skills:
       link_target: /mnt/d/codex-capability-registry/skills/lark-doc-to-obsidian
     manifest: skills/lark-doc-to-obsidian/SKILL.md
 
+  - name: module-comment-and-naming-governance
+    ownership: first_party_embedded
+    source:
+      type: embedded
+      path: skills/module-comment-and-naming-governance
+      imported_from: created-in-registry
+      version: registry-baseline
+    runtime:
+      skill_path: /home/jichao/.agents/skills/module-comment-and-naming-governance
+      link_target: /mnt/d/codex-capability-registry/skills/module-comment-and-naming-governance
+    manifest: skills/module-comment-and-naming-governance/SKILL.md
+
   - name: lark-shared
     ownership: third_party_external
     source:
