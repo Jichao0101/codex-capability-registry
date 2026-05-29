@@ -16,6 +16,8 @@ Small first-party skills are embedded directly:
 
 Third-party skills are not copied into the registry source tree. They remain external runtime directories and are tracked in `manifests/skills.yaml` with `ownership: third_party_external`.
 
+Each third-party entry is a migration record, not source ownership. The record should keep enough information to rebuild the runtime directory later: current runtime path, trusted backup path when available, provider/source hint, and installation note.
+
 ## Runtime
 
 Plugin marketplace entries keep using:
@@ -31,6 +33,8 @@ The install script makes those paths symlinks to the submodule checkouts. Embedd
 2. Install any third-party skills through their normal installer or restore them from a trusted backup.
 3. Run `scripts/install-runtime-links.sh`.
 4. Run `scripts/verify-runtime.sh`.
+
+On the original machine, `scripts/install-runtime-links.sh --restore-third-party` may be used to restore third-party runtime directories from the backup paths recorded in `manifests/skills.yaml`. On a new machine, prefer the original provider or a freshly captured trusted backup.
 
 ## Boundaries
 

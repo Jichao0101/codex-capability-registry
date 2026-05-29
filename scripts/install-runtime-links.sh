@@ -4,32 +4,34 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CODEX_PLUGINS_DIR="${CODEX_PLUGINS_DIR:-/home/jichao/.codex/plugins}"
 AGENTS_SKILLS_DIR="${AGENTS_SKILLS_DIR:-/home/jichao/.agents/skills}"
-THIRD_PARTY_BACKUP_DIR="${THIRD_PARTY_BACKUP_DIR:-/home/jichao/.agents/skills-backup-20260528134913}"
+RESTORE_THIRD_PARTY=0
+
+if [ "${1:-}" = "--restore-third-party" ]; then
+  RESTORE_THIRD_PARTY=1
+elif [ "${1:-}" != "" ]; then
+  echo "usage: $0 [--restore-third-party]" >&2
+  exit 1
+fi
 
 FIRST_PARTY_PLUGINS=(cutepower subpower)
-FIRST_PARTY_SKILLS=(karpathy-guidelines lark-doc-to-obsidian module-comment-and-naming-governance)
-THIRD_PARTY_SKILLS=(
-  lark-shared
-  lark-openapi-explorer
-  lark-calendar
-  lark-im
-  lark-skill-maker
-  lark-whiteboard
-  lark-contact
-  lark-doc
-  lark-base
-  lark-drive
-  lark-minutes
-  lark-vc
-  lark-sheets
-  lark-wiki
-  lark-event
-  lark-task
-  lark-workflow-meeting-summary
-  lark-mail
-  lark-workflow-standup-report
-  profile_model_pipeline_and_compare_baseline
-)
+
+skill_names_by_ownership() {
+  local ownership="$1"
+  awk -v ownership="$ownership" '
+    /^  - name:/ { name=$3 }
+    $1 == "ownership:" && $2 == ownership { print name }
+  ' "$REPO_ROOT/manifests/skills.yaml"
+}
+
+skill_source_value() {
+  local name="$1"
+  local key="$2"
+  awk -v name="$name" -v key="$key" '
+    BEGIN { needle = key ":" }
+    /^  - name:/ { in_item=($3 == name) }
+    in_item && $1 == needle { print $2; exit }
+  ' "$REPO_ROOT/manifests/skills.yaml"
+}
 
 backup_dir() {
   local base="$1"
@@ -61,7 +63,8 @@ replace_with_symlink() {
 restore_external_skill() {
   local name="$1"
   local dst="${AGENTS_SKILLS_DIR}/${name}"
-  local backup="${THIRD_PARTY_BACKUP_DIR}/${name}"
+  local backup
+  backup="$(skill_source_value "$name" "restore_from")"
   if [ -L "$dst" ]; then
     rm "$dst"
   elif [ -e "$dst" ]; then
@@ -85,15 +88,23 @@ for plugin in "${FIRST_PARTY_PLUGINS[@]}"; do
     "${CODEX_PLUGINS_DIR}-backup/${plugin}"
 done
 
-for skill in "${FIRST_PARTY_SKILLS[@]}"; do
+while IFS= read -r skill; do
   replace_with_symlink \
     "${REPO_ROOT}/skills/${skill}" \
     "${AGENTS_SKILLS_DIR}/${skill}" \
     "${AGENTS_SKILLS_DIR}-backup/${skill}"
-done
+done < <(skill_names_by_ownership first_party_embedded)
 
-for skill in "${THIRD_PARTY_SKILLS[@]}"; do
-  restore_external_skill "$skill"
-done
+if [ "$RESTORE_THIRD_PARTY" -eq 1 ]; then
+  while IFS= read -r skill; do
+    restore_external_skill "$skill"
+  done < <(skill_names_by_ownership third_party_external)
+else
+  while IFS= read -r skill; do
+    if [ ! -e "${AGENTS_SKILLS_DIR}/${skill}" ]; then
+      echo "third-party skill not installed: ${skill}"
+    fi
+  done < <(skill_names_by_ownership third_party_external)
+fi
 
 echo "runtime links installed"

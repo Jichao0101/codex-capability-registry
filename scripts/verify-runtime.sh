@@ -19,6 +19,14 @@ manifest_commit() {
   ' "$REPO_ROOT/manifests/plugins.yaml"
 }
 
+skill_names_by_ownership() {
+  local ownership="$1"
+  awk -v ownership="$ownership" '
+    /^  - name:/ { name=$3 }
+    $1 == "ownership:" && $2 == ownership { print name }
+  ' "$REPO_ROOT/manifests/skills.yaml"
+}
+
 check_plugin() {
   local name="$1"
   local expected
@@ -51,17 +59,12 @@ check_external_skill() {
 
 check_plugin cutepower
 check_plugin subpower
-check_first_party_skill karpathy-guidelines
-check_first_party_skill lark-doc-to-obsidian
-check_first_party_skill module-comment-and-naming-governance
+while IFS= read -r skill; do
+  check_first_party_skill "$skill"
+done < <(skill_names_by_ownership first_party_embedded)
 
-for skill in \
-  lark-shared lark-openapi-explorer lark-calendar lark-im lark-skill-maker \
-  lark-whiteboard lark-contact lark-doc lark-base lark-drive lark-minutes \
-  lark-vc lark-sheets lark-wiki lark-event lark-task \
-  lark-workflow-meeting-summary lark-mail lark-workflow-standup-report \
-  profile_model_pipeline_and_compare_baseline; do
+while IFS= read -r skill; do
   check_external_skill "$skill"
-done
+done < <(skill_names_by_ownership third_party_external)
 
 echo "runtime verification passed"

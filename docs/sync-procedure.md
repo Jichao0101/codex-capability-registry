@@ -50,6 +50,20 @@ Third-party skills are external runtime directories. They are listed in `manifes
 
 Do not copy third-party source into `skills/`. The install script may restore them from a trusted backup path when the local runtime directory is missing.
 
+By default, runtime installation does not copy or restore third-party skills. It only reports missing third-party runtime directories recorded in the manifest:
+
+```bash
+scripts/install-runtime-links.sh
+```
+
+To rebuild a known machine from the captured backup paths in `manifests/skills.yaml`, opt in explicitly:
+
+```bash
+scripts/install-runtime-links.sh --restore-third-party
+```
+
+For migration to a different machine, treat each `third_party_external` manifest entry as an installation record: install the skill from its original provider or restore it from a trusted backup, then run verification. The restored third-party directory must remain a normal runtime directory under `/home/jichao/.agents/skills`; it must not be a symlink into this repository.
+
 ## Verification
 
 Run:

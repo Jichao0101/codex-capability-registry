@@ -19,6 +19,8 @@ Central registry and migration repository for self-developed Codex plugins and s
 
 Third-party capabilities are recorded in manifests only. They must not be imported into `skills/` or linked from runtime paths into this repository.
 
+For third-party skills, `manifests/skills.yaml` is a migration record: it names the runtime directory, source/provider hint, install note, and trusted backup path when one exists. The registry does not own or vendor that source.
+
 ## Runtime Strategy
 
 - Keep `/home/jichao/.agents/plugins/marketplace.json` stable when possible.
