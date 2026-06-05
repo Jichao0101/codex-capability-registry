@@ -35,6 +35,18 @@ skills:
       link_target: /mnt/d/codex-capability-registry/skills/module-comment-and-naming-governance
     manifest: skills/module-comment-and-naming-governance/SKILL.md
 
+  - name: knowledge-base-structure-builder
+    ownership: first_party_embedded
+    source:
+      type: embedded
+      path: skills/knowledge-base-structure-builder
+      imported_from: created-in-registry
+      version: registry-baseline
+    runtime:
+      skill_path: /home/jichao/.agents/skills/knowledge-base-structure-builder
+      link_target: /mnt/d/codex-capability-registry/skills/knowledge-base-structure-builder
+    manifest: skills/knowledge-base-structure-builder/SKILL.md
+
   - name: lark-shared
     ownership: third_party_external
     source:
