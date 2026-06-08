@@ -1,4 +1,16 @@
 skills:
+  - name: deep-module-design-review
+    ownership: first_party_embedded
+    source:
+      type: embedded
+      path: skills/deep-module-design-review
+      imported_from: created-in-registry
+      version: registry-baseline
+    runtime:
+      skill_path: /home/jichao/.agents/skills/deep-module-design-review
+      link_target: /mnt/d/codex-capability-registry/skills/deep-module-design-review
+    manifest: skills/deep-module-design-review/SKILL.md
+
   - name: karpathy-guidelines
     ownership: first_party_embedded
     source:
