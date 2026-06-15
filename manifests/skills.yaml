@@ -23,6 +23,18 @@ skills:
       link_target: /mnt/d/codex-capability-registry/skills/karpathy-guidelines
     manifest: skills/karpathy-guidelines/SKILL.md
 
+  - name: interface-abstraction-implementation-guard
+    ownership: first_party_embedded
+    source:
+      type: embedded
+      path: skills/interface-abstraction-implementation-guard
+      imported_from: created-in-registry
+      version: registry-baseline
+    runtime:
+      skill_path: /home/jichao/.agents/skills/interface-abstraction-implementation-guard
+      link_target: /mnt/d/codex-capability-registry/skills/interface-abstraction-implementation-guard
+    manifest: skills/interface-abstraction-implementation-guard/SKILL.md
+
   - name: lark-doc-to-obsidian
     ownership: first_party_embedded
     source:

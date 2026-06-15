@@ -1,4 +1,4 @@
 interface:
-  display_name: "接口抽象实现守门"
-  short_description: "约束实现不偏离接口与抽象方案"
+  display_name: "interface-abstraction-implementation-guard"
+  short_description: "接口与抽象实现守门：约束实现不偏离接口与抽象方案"
   default_prompt: "使用 $interface-abstraction-implementation-guard 实现这次重构，并确保不偏离已评审的 API 与抽象边界。"
