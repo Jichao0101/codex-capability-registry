@@ -13,6 +13,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 
 - 保证 public/private API 修改不超出已批准计划。
 - 防止未经评审的 helper 拆分、wrapper、context/result payload 和新增内部抽象扩大认知接口。
+- 将 private interface 视为需要证明收益的成本项，而不是默认禁止项；当它能显著提升主流程可读性、依赖显式性或 phase 边界清晰度时，可以优先于 private interface 最小化。
 - 除非明确授权，否则保持行为边界、失败模型、ownership、生命周期和调用方责任不变。
 - 在完成前发现抽象漂移和 API 漂移。
 
@@ -88,12 +89,13 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 实现中必须遵守：
 
 - 除非当前 step 明确授权，否则保持 public API 不变。
-- 把 private header 中的方法和类型也视为维护者必须理解的 API surface；默认不要在其中加入 step-level 执行脚本或临时 payload。
+- 把 private header 中的方法和类型也视为维护者必须理解的 API surface；它们是成本项，需要用可读性、依赖显式性、phase 边界或不变量收益证明，但不是禁止项。
 - 新增持久类型前，优先复用已有 domain object、容器、局部变量、局部 lambda、函数局部 struct 或 `.cpp`/internal helper。
 - 只有当新类型已在批准清单中，或通过第 6 节最小抽象检查时，才允许新增。
 - helper 提取优先保持 phase-level 语义；避免把固定顺序执行链暴露成一组 step helper。
 - 低可见性不等于更好抽象。不得为了避免 private API surface 而把稳定 phase 边界强行压缩成函数局部 lambda。
 - 局部 lambda 只适合局部机制；若 lambda 表达完整 phase、捕获大量状态、形成固定执行链、承载跨步骤状态演化，或导致不同抽象层级继续堆叠在同一大函数内，应停止并重新评估是否需要 phase-level `.cpp` / internal helper 或 private helper。
+- 可读性优先级高于 private interface 最小化：若 `.cpp` helper 或局部机制仍让主流程难读、依赖隐式、phase 边界不清，允许新增 private helper/type；但必须记录它降低了哪些阅读复杂度，以及为何低可见性方案不足。
 - 不新增只用于把数据从一步搬到下一步的 wrapper。
 - 不用注释、测试或命名为缺少不变量、生命周期、稳定职责或复用价值的抽象做事后辩护。
 - 除非当前 step 授权，否则不改变行为、失败模型、执行顺序、状态 ownership 或副作用。
@@ -144,7 +146,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
   > public class/API
 ```
 
-优先使用最轻表示，但不得以牺牲主流程可读性、依赖显式性和 phase 边界清晰度为代价。若最轻表示只能把复杂 phase 留在原大函数内，或让不同层次的代码继续混杂，应升级候选可见性并重新评估 `.cpp` / internal helper、private helper 或更完整的 phase-level 边界。
+优先使用最轻表示，但不得以牺牲主流程可读性、依赖显式性和 phase 边界清晰度为代价。private interface 最小化低于可读性目标：若最轻表示只能把复杂 phase 留在原大函数内，或让不同层次的代码继续混杂，应升级候选可见性并重新评估 `.cpp` / internal helper、private helper 或更完整的 phase-level 边界。
 
 新增抽象至少满足以下一项才允许：
 
@@ -153,6 +155,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 具备独立生命周期、ownership 或失败语义。
 - 被多个稳定调用点复用，并实质减少重复逻辑或组合错误。
 - 降低调用方必须理解的知识，而不是把内部拼装规则外移。
+- 降低维护者阅读主流程时必须同时加载的层级数量，即使代价是增加少量 private interface。
 - 形成可独立测试或演进的深边界。
 
 以下抽象默认拒绝或暂缓：
@@ -172,6 +175,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 不变量/生命周期/ownership：
 为何现有表示不足：
 最低必要可见性：
+可读性收益是否大于 private interface 成本：
 决策：新增 / 局部化 / 暂缓 / 拒绝
 ```
 
@@ -184,6 +188,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 每个修改文件和修改符号是否都能映射到当前 plan step？
 - 是否改变了 public API、private header API、签名、数据契约或调用方责任？
 - 新增 helper/type 是否限于批准清单或第 6 节决策？
+- 若新增 private helper/type，diff 是否明确换来了主流程可读性、依赖显式性或 phase 边界收益，而不是只把代码搬家？
 - helper 提取是在隐藏复杂性，还是暴露固定执行脚本？
 - diff 是否引入风险边界外的行为变化？
 - 测试或验证是否覆盖相关契约？
