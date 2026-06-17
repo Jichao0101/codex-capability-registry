@@ -13,7 +13,13 @@ elif [ "${1:-}" != "" ]; then
   exit 1
 fi
 
-FIRST_PARTY_PLUGINS=(cutepower subpower)
+plugin_names_by_ownership() {
+  local ownership="$1"
+  awk -v ownership="$ownership" '
+    /^  - name:/ { name=$3 }
+    $1 == "ownership:" && $2 == ownership { print name }
+  ' "$REPO_ROOT/manifests/plugins.yaml"
+}
 
 skill_names_by_ownership() {
   local ownership="$1"
@@ -81,12 +87,12 @@ restore_external_skill() {
 
 mkdir -p "$CODEX_PLUGINS_DIR" "$AGENTS_SKILLS_DIR"
 
-for plugin in "${FIRST_PARTY_PLUGINS[@]}"; do
+while IFS= read -r plugin; do
   replace_with_symlink \
     "${REPO_ROOT}/sources/submodules/${plugin}" \
     "${CODEX_PLUGINS_DIR}/${plugin}" \
     "${CODEX_PLUGINS_DIR}-backup/${plugin}"
-done
+done < <(plugin_names_by_ownership first_party_submodule)
 
 while IFS= read -r skill; do
   replace_with_symlink \

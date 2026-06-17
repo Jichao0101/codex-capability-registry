@@ -2,7 +2,7 @@
 
 ## Decision
 
-`codex-capability-registry` is the central registry and migration repository. It records what must be installed, which version is pinned, and how runtime links are created.
+`codex-capability-registry` is the central registry and migration repository. It records available capabilities, their ownership, portable source facts, install strategy, verification expectations, and pinned versions where applicable.
 
 Large first-party plugins remain independent repositories and are included as Git submodules:
 
@@ -16,7 +16,7 @@ Small first-party skills are embedded directly:
 
 Third-party skills are not copied into the registry source tree. They remain external runtime directories and are tracked in `manifests/skills.yaml` with `ownership: third_party_external`.
 
-Each third-party entry is a migration record, not source ownership. The record should keep enough information to rebuild the runtime directory later: current runtime path, trusted backup path when available, provider/source hint, and installation note.
+Each third-party entry is an installation record, not source ownership. The record should keep enough portable information to rebuild the runtime directory later: capability summary, provider/source hint, install strategy, and trusted backup path when available. Machine-local runtime paths are derived by scripts and should not be stored as registry facts.
 
 ## Runtime
 
@@ -25,7 +25,7 @@ Plugin marketplace entries keep using:
 - `./.codex/plugins/cutepower`
 - `./.codex/plugins/subpower`
 
-The install script makes those paths symlinks to the submodule checkouts. Embedded first-party skills are symlinked from `/home/jichao/.agents/skills`. Third-party skills are restored as normal directories from the captured backup if needed.
+The install script makes those paths symlinks to the submodule checkouts. Embedded first-party skills are symlinked from the configured agents skills directory. Third-party skills are restored as normal directories from the captured backup if needed.
 
 ## Migration To Another Machine
 

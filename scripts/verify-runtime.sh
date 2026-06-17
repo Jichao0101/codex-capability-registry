@@ -27,6 +27,14 @@ skill_names_by_ownership() {
   ' "$REPO_ROOT/manifests/skills.yaml"
 }
 
+plugin_names_by_ownership() {
+  local ownership="$1"
+  awk -v ownership="$ownership" '
+    /^  - name:/ { name=$3 }
+    $1 == "ownership:" && $2 == ownership { print name }
+  ' "$REPO_ROOT/manifests/plugins.yaml"
+}
+
 check_plugin() {
   local name="$1"
   local expected
@@ -57,8 +65,9 @@ check_external_skill() {
   [ ! -e "$REPO_ROOT/skills/$name" ] || fail "external skill pollutes registry source tree: $name"
 }
 
-check_plugin cutepower
-check_plugin subpower
+while IFS= read -r plugin; do
+  check_plugin "$plugin"
+done < <(plugin_names_by_ownership first_party_submodule)
 while IFS= read -r skill; do
   check_first_party_skill "$skill"
 done < <(skill_names_by_ownership first_party_embedded)

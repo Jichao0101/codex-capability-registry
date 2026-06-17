@@ -6,7 +6,7 @@ Central registry and migration repository for self-developed Codex plugins and s
 
 - `sources/submodules/`: first-party plugin repositories pinned as Git submodules.
 - `skills/`: small first-party skills embedded directly in this repository.
-- `manifests/`: ownership, source, version, runtime path, and install metadata.
+- `manifests/`: capability summaries, ownership, portable source, install strategy, and verification metadata.
 - `marketplaces/`: marketplace manifests or templates used to expose local plugins.
 - `scripts/`: runtime link installation and verification.
 - `docs/`: operating notes, migration records, and sync procedures.
@@ -19,7 +19,9 @@ Central registry and migration repository for self-developed Codex plugins and s
 
 Third-party capabilities are recorded in manifests only. They must not be imported into `skills/` or linked from runtime paths into this repository.
 
-For third-party skills, `manifests/skills.yaml` is a migration record: it names the runtime directory, source/provider hint, install note, and trusted backup path when one exists. The registry does not own or vendor that source.
+For first-party skills, `manifests/skills.yaml` records the bundled repository path and points to the local `SKILL.md` as the description source. Runtime paths are derived by the install scripts and are not registry facts.
+
+For third-party skills, `manifests/skills.yaml` is an installation record: it names the capability, provider/source hint, install strategy, and trusted backup path when one exists. The registry does not own or vendor that source, and machine-local runtime paths are intentionally omitted.
 
 ## Runtime Strategy
 

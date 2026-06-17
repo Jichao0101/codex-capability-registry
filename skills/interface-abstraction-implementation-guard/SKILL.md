@@ -92,6 +92,8 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 新增持久类型前，优先复用已有 domain object、容器、局部变量、局部 lambda、函数局部 struct 或 `.cpp`/internal helper。
 - 只有当新类型已在批准清单中，或通过第 6 节最小抽象检查时，才允许新增。
 - helper 提取优先保持 phase-level 语义；避免把固定顺序执行链暴露成一组 step helper。
+- 低可见性不等于更好抽象。不得为了避免 private API surface 而把稳定 phase 边界强行压缩成函数局部 lambda。
+- 局部 lambda 只适合局部机制；若 lambda 表达完整 phase、捕获大量状态、形成固定执行链、承载跨步骤状态演化，或导致不同抽象层级继续堆叠在同一大函数内，应停止并重新评估是否需要 phase-level `.cpp` / internal helper 或 private helper。
 - 不新增只用于把数据从一步搬到下一步的 wrapper。
 - 不用注释、测试或命名为缺少不变量、生命周期、稳定职责或复用价值的抽象做事后辩护。
 - 除非当前 step 授权，否则不改变行为、失败模型、执行顺序、状态 ownership 或副作用。
@@ -141,6 +143,8 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
   > internal class
   > public class/API
 ```
+
+优先使用最轻表示，但不得以牺牲主流程可读性、依赖显式性和 phase 边界清晰度为代价。若最轻表示只能把复杂 phase 留在原大函数内，或让不同层次的代码继续混杂，应升级候选可见性并重新评估 `.cpp` / internal helper、private helper 或更完整的 phase-level 边界。
 
 新增抽象至少满足以下一项才允许：
 
