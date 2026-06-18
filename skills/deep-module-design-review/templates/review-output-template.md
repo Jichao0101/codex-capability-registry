@@ -40,9 +40,9 @@
 
 ## 4. Private / Helper Surface 审计
 
-| private/helper | 完整领域动作或 phase contract | 主要操作长期状态 | 参数来源风险 | 副作用显式 | 固定顺序 step | 建议位置 | 判断 |
-|---|---|---|---|---|---|---|---|
-|  | 是 / 否 | 是 / 否 | 长期状态 / 单帧事实 / 低层中间态 / 共享参数组 | 是 / 否 | 是 / 否 | header / cpp internal / 函数局部 / 合并 / 删除 |  |
+| private/helper/type | 持有/使用方式 | header 是否要求完整类型 | 完整领域动作或 phase contract | 主要操作长期状态 | 参数来源风险 | 副作用显式 | 固定顺序 step | 建议位置 | 判断 |
+|---|---|---|---|---|---|---|---|---|---|
+|  | 按值成员 / 指针成员 / 引用成员 / 方法签名 / 不适用 | 是 / 否 / 不适用 | 是 / 否 | 是 / 否 | 长期状态 / 单帧事实 / 低层中间态 / 共享参数组 | 是 / 否 | 是 / 否 | header / cpp internal / 函数局部 / 合并 / 删除 / PImpl |  |
 
 - private/header surface 是否暴露完整执行脚本：
 - 已有 helper 是否已先收敛，再考虑新增 helper：
@@ -51,6 +51,16 @@
 - 应合并为更深 phase-level helper 的 step helper：
 - 应删除的浅包装 helper：
 - header 是否正在成为内部执行脚本；若是，最小收敛路径：
+
+### C++ 完整类型与实现隐藏
+
+- 按值持有的 private 类型：
+- 仅前置声明是否可编译：
+- 是否只是定义可见，而非 public API 可访问：
+- 真正隐藏是否需要 PImpl/internal impl：
+- ownership、析构点、拷贝/移动语义、异常保证：
+- ABI、分配成本和构建依赖影响：
+- 若建议 PImpl/internal impl，是否已归类为中风险边界重组：
 
 ## 5. 参数来源审计
 
@@ -182,12 +192,14 @@
 - 改动：
 - 保持条件：
 - 最小验证：
+- 不得包含：通过 PImpl/internal impl 隐藏原本按值持有的 private 类型。
 
 ### 中风险边界重组
 
 - 改动：
 - 潜在行为影响：
 - 所需验证：
+- PImpl/internal impl（若适用）的 ownership、special members、ABI、分配和构建影响：
 
 ### 高风险行为或契约变更
 
