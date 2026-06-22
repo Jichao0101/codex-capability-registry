@@ -1,0 +1,22 @@
+{
+  "rule_set_version": "1",
+  "defaults": {
+    "status": "legacy_unknown",
+    "evidence_level": "unsourced",
+    "review_after": "unknown",
+    "evidence_refs": [],
+    "supersedes": [],
+    "superseded_by": [],
+    "protection_level": "normal",
+    "change_policy": "free_update"
+  },
+  "ordered_paths": [
+    {"id": "KB-PATH-001", "patterns": ["**/*_current.md", "**/overview_current.md"], "protection_level": "guarded", "change_policy": "free_update", "signal_strength": "strong"},
+    {"id": "KB-PATH-002", "patterns": ["01_Knowledge/**"], "protection_level": "guarded", "change_policy": "explicit_supersession_required", "signal_strength": "strong"},
+    {"id": "KB-PATH-003", "patterns": ["**/fixes/**", "**/decisions/**", "**/validation_records/**", "**/incidents/**"], "protection_level": "guarded", "change_policy": "explicit_supersession_required", "signal_strength": "strong"},
+    {"id": "KB-PATH-004", "patterns": ["04_Sources/**"], "protection_level": "guarded", "change_policy": "append_only", "signal_strength": "medium"},
+    {"id": "KB-PATH-005", "patterns": ["**/Current Maintenance Records/**", "logs/**", "reports/**"], "protection_level": "normal", "change_policy": "append_only", "signal_strength": "weak"},
+    {"id": "KB-PATH-006", "patterns": ["03_Inbox/**"], "protection_level": "normal", "change_policy": "free_update", "signal_strength": "medium"},
+    {"id": "KB-PATH-007", "patterns": ["90_Archive/**"], "protection_level": "guarded", "change_policy": "append_only", "signal_strength": "weak"}
+  ]
+}

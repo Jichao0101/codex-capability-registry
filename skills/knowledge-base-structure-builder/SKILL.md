@@ -1,6 +1,6 @@
 ---
 name: knowledge-base-structure-builder
-description: Build, migrate, and maintain structured knowledge bases. Use when initializing a blank knowledge base, converting scattered notes into a layered knowledge base, maintaining overview/index files, deciding candidate/source/project/knowledge placement, creating or patching project current document groups, or auditing knowledge-base structure and recoverability.
+description: Build, migrate, maintain, lint, and preflight structured Markdown knowledge bases. Use when initializing or restructuring a knowledge base, maintaining overview/index files and project current groups, deciding candidate/source/project/knowledge placement, auditing metadata and links, building a traceability index, or preventing guarded facts, fixes, constraints, and supersession history from being silently overwritten.
 ---
 
 # Knowledge Base Structure Builder
@@ -41,6 +41,21 @@ Select one mode:
 - For current groups, never set `single_pass_recoverable: true` without independent recoverability verification.
 - Any write that changes entries, scope, status, current fact source, placement, or recoverability must sync the relevant overview/index/audit file.
 - In Migration mode, structured placement under the standard zones is the primary output. Keeping `raw/` is only a traceability measure and does not replace arranging documents in the new structure.
+
+## Governance Workflow
+
+Treat the target vault's `AGENTS.md` as policy authority. Keep this skill's workflow, `rules/`, and `scripts/` version-bound; do not create a second repo-level implementation unless an independent CI, CLI, agent, or skill consumer exists.
+
+Before any knowledge-base write:
+
+1. Read authorized entries and the relevant project/module overview.
+2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault>`.
+3. Run `python3 scripts/kb.py preflight` for each target; pass the policy file plus explicit `--authorized-path` and policy-derived `--forbidden-path` values.
+4. For `blocked`, do not write. For `manual_review`, prepare a proposal or patch draft and obtain explicit review. For `allow`, apply only the declared intent.
+5. Run `hash-check` immediately before writing; rerun preflight when hashes changed.
+6. After writing, run read-only `lint` and perform required overview/index sync.
+
+Read `references/governance-tools.md` before using lint, trace, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
 
 ## Placement Quick Guide
 

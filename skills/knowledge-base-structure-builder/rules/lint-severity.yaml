@@ -1,0 +1,13 @@
+{
+  "rule_set_version": "1",
+  "rules": {
+    "KB-LINT-001": {"severity": "error", "description": "required vault entry is missing"},
+    "KB-LINT-002": {"severity": "error", "description": "wikilink target is missing"},
+    "KB-LINT-003": {"severity": "info", "description": "markdown page has no inbound wikilink"},
+    "KB-LINT-004": {"severity": "error", "description": "declared enum value is invalid"},
+    "KB-LINT-005": {"severity": "warning", "description": "formal knowledge lacks required readable metadata"},
+    "KB-LINT-006": {"severity": "error", "description": "supersession target is missing"},
+    "KB-LINT-007": {"severity": "error", "description": "supersession graph contains a cycle"},
+    "KB-LINT-008": {"severity": "error", "description": "current document claims unverified single-pass recoverability"}
+  }
+}

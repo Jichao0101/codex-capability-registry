@@ -1,0 +1,22 @@
+{
+  "rule_set_version": "1",
+  "declared_fields": [
+    "status",
+    "evidence_level",
+    "evidence_refs",
+    "review_after",
+    "supersedes",
+    "superseded_by",
+    "protection_level",
+    "change_policy"
+  ],
+  "enums": {
+    "status": ["draft", "active", "verified", "stale", "superseded", "archived"],
+    "evidence_level": ["unsourced", "single_source", "corroborated", "runtime_verified"],
+    "protection_level": ["normal", "guarded", "critical"],
+    "change_policy": ["free_update", "append_only", "explicit_supersession_required"]
+  },
+  "legacy_aliases": {
+    "evidence_refs": ["evidence_refs", "sources", "source"]
+  }
+}
