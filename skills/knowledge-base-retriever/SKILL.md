@@ -135,6 +135,18 @@ Useful execution controls:
 
 The script preserves hits inside code blocks, but code-block lines that look like headings do not define section boundaries.
 
+## Candidate Ranking Rules
+
+`candidate_documents` use explicit priority tiers instead of additive hidden scoring:
+
+- `P1 original_record_retrieval_summary`: original fix/decision/validation/incident/maintenance records whose Retrieval Summary matched.
+- `P2 original_record_body_or_title`: original records whose body or title matched.
+- `P3 current_or_overview_body`: current/overview documents whose body matched.
+- `P4 ordinary_body_or_title`: other documents whose body or title matched.
+- `P5 metadata_source_or_aggregate_only`: frontmatter-only, source-list-only, or aggregate current/overview matches without body evidence.
+
+Within the same tier, tie-breakers are ordered and reported as `rank_tie_breakers`: exact/title batch, symptom batch, multiple query terms, multiple query batches, then hit count and path. These are deterministic ordering rules, not a summed relevance score. Always explain retrieval choices from `rank_priority`, `rank_rules`, the source sections read, and the original Markdown content.
+
 ## Package Schema
 
 ```yaml

@@ -40,8 +40,10 @@ class Hit:
 
 @dataclass(frozen=True)
 class DocumentRank:
-    score: int
+    tier: int
+    priority: str
     reasons: tuple[str, ...]
+    tie_breakers: tuple[str, ...]
 
 
 def norm_path(path: Path) -> Path:
@@ -289,60 +291,87 @@ def line_context(path: Path, line_no: int) -> str:
     return "body"
 
 
-def score_document(rel: str, hits: list[Hit], root: Path) -> DocumentRank:
+def rank_document(rel: str, hits: list[Hit], root: Path) -> DocumentRank:
     kind = infer_record_kind(rel)
-    score = 0
     reasons: list[str] = []
-    kind_weight = {
-        "fix": 45,
-        "decision": 40,
-        "validation": 38,
-        "incident": 42,
-        "maintenance": 18,
-        "current": 12,
-        "overview": 5,
-        "page": 10,
-    }.get(kind, 10)
-    score += kind_weight
-    reasons.append(f"record_kind:{kind}:{kind_weight}")
     batches = {hit.batch for hit in hits}
     terms = {hit.query for hit in hits}
-    score += min(len(hits), 20)
-    score += len(batches) * 3
-    score += len(terms) * 2
-    if "exact" in " ".join(batches).lower() or "title" in " ".join(batches).lower():
-        score += 18
-        reasons.append("exact_or_title_batch:+18")
-    if any("symptom" in batch.lower() for batch in batches):
-        score += 14
-        reasons.append("symptom_batch:+14")
-    if any("structure" in batch.lower() for batch in batches):
-        score -= 8
-        reasons.append("structure_batch:-8")
-
     contexts: dict[str, int] = {}
     for hit in hits:
         context = line_context(hit.path, hit.line)
         contexts[context] = contexts.get(context, 0) + 1
-    if contexts.get("retrieval_summary"):
-        score += 30
-        reasons.append("retrieval_summary_hit:+30")
-    if contexts.get("title"):
-        score += 20
-        reasons.append("title_hit:+20")
-    if contexts.get("frontmatter") and not contexts.get("body"):
-        score -= 14
-        reasons.append("frontmatter_only:-14")
-    elif contexts.get("frontmatter"):
-        score -= 6
-        reasons.append("frontmatter_hit:-6")
-    if contexts.get("source_list"):
-        score -= 10
-        reasons.append("source_list_hit:-10")
-    if kind in {"current", "overview"} and not contexts.get("body") and not contexts.get("retrieval_summary"):
-        score -= 20
-        reasons.append("aggregate_without_body_hit:-20")
-    return DocumentRank(score=score, reasons=tuple(reasons))
+    original_record = kind in {"fix", "decision", "validation", "incident", "maintenance"}
+    aggregate_doc = kind in {"current", "overview"}
+    has_retrieval_summary = bool(contexts.get("retrieval_summary"))
+    has_body = bool(contexts.get("body"))
+    has_title = bool(contexts.get("title"))
+    has_source_list = bool(contexts.get("source_list"))
+    frontmatter_only = bool(contexts.get("frontmatter")) and not (has_body or has_retrieval_summary or has_title)
+    aggregate_without_body = aggregate_doc and not (has_body or has_retrieval_summary)
+
+    if original_record and has_retrieval_summary:
+        tier = 1
+        priority = "P1 original_record_retrieval_summary"
+        reasons.append("original fix/decision/validation/incident/maintenance record matched its Retrieval Summary")
+    elif original_record and (has_body or has_title):
+        tier = 2
+        priority = "P2 original_record_body_or_title"
+        reasons.append("original record matched body or title text")
+    elif aggregate_doc and has_body:
+        tier = 3
+        priority = "P3 current_or_overview_body"
+        reasons.append("current/overview matched body text")
+    elif has_body or has_title:
+        tier = 4
+        priority = "P4 ordinary_body_or_title"
+        reasons.append("ordinary document matched body or title text")
+    elif frontmatter_only or has_source_list or aggregate_without_body:
+        tier = 5
+        priority = "P5 metadata_source_or_aggregate_only"
+        if frontmatter_only:
+            reasons.append("matches are frontmatter-only")
+        if has_source_list:
+            reasons.append("matches are in source/evidence lists")
+        if aggregate_without_body:
+            reasons.append("current/overview aggregate matched without body evidence")
+    else:
+        tier = 4
+        priority = "P4 ordinary_match"
+        reasons.append("document matched query terms without a stronger rule")
+
+    batch_text = " ".join(batches).lower()
+    tie_breakers: list[str] = []
+    if "exact" in batch_text or "title" in batch_text:
+        tie_breakers.append("exact_or_title_batch")
+    if any("symptom" in batch.lower() for batch in batches):
+        tie_breakers.append("symptom_batch")
+    if len(terms) > 1:
+        tie_breakers.append("multiple_query_terms")
+    if len(batches) > 1:
+        tie_breakers.append("multiple_query_batches")
+    if any("structure" in batch.lower() for batch in batches):
+        tie_breakers.append("structure_batch_only_demoted_in_tie")
+    reasons.append(f"record_kind:{kind}")
+    reasons.append("tier before tie-breakers; tie-breakers are ordered booleans, not additive scores")
+    return DocumentRank(tier=tier, priority=priority, reasons=tuple(reasons), tie_breakers=tuple(tie_breakers))
+
+
+def document_sort_key(doc: dict) -> tuple:
+    tie_breakers = set(doc.get("rank_tie_breakers", []))
+    structure_only = (
+        "structure_batch_only_demoted_in_tie" in tie_breakers
+        and not {"exact_or_title_batch", "symptom_batch"} & tie_breakers
+    )
+    return (
+        doc.get("rank_tier", 99),
+        1 if structure_only else 0,
+        0 if "exact_or_title_batch" in tie_breakers else 1,
+        0 if "symptom_batch" in tie_breakers else 1,
+        0 if "multiple_query_terms" in tie_breakers else 1,
+        0 if "multiple_query_batches" in tie_breakers else 1,
+        -doc["hit_count"],
+        doc["path"],
+    )
 
 
 def heading_lines_outside_code(lines: list[str]) -> list[tuple[int, str]]:
@@ -408,9 +437,11 @@ def document_summaries(hits: list[Hit], root: Path) -> dict[str, dict]:
         if hit.query not in docs[rel]["matched_terms"]:
             docs[rel]["matched_terms"].append(hit.query)
     for rel, doc_hits in hits_by_doc.items():
-        rank = score_document(rel, doc_hits, root)
-        docs[rel]["rank_score"] = rank.score
-        docs[rel]["rank_reasons"] = list(rank.reasons)
+        rank = rank_document(rel, doc_hits, root)
+        docs[rel]["rank_tier"] = rank.tier
+        docs[rel]["rank_priority"] = rank.priority
+        docs[rel]["rank_rules"] = list(rank.reasons)
+        docs[rel]["rank_tie_breakers"] = list(rank.tie_breakers)
     return docs
 
 
@@ -515,7 +546,7 @@ def main() -> int:
             "rg_batches": query_plan["rg_batches"],
         },
         "queries_executed": queries,
-        "candidate_documents": sorted(docs.values(), key=lambda d: (-d.get("rank_score", 0), -d["hit_count"], d["path"])),
+        "candidate_documents": sorted(docs.values(), key=document_sort_key),
         "source_sections_read": sections,
         **candidate_buckets,
         "unresolved_ambiguities": query_plan.get("unresolved_ambiguities", []),

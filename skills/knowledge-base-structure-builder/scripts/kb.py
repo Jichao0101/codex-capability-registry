@@ -254,11 +254,13 @@ def section_text(lines: list[str], heading: dict[str, Any]) -> str:
 
 
 def find_retrieval_summary_sections(lines: list[str]) -> list[dict[str, Any]]:
-    return [
-        heading
-        for heading in headings_and_sections(lines)
-        if heading["title"].strip().lower() in RETRIEVAL_SUMMARY_TITLES
-    ]
+    sections = []
+    for heading in headings_and_sections(lines):
+        title = heading["title"].strip().lower()
+        normalized = re.sub(r"^\d+(?:\.\d+)*\s+", "", title)
+        if title in RETRIEVAL_SUMMARY_TITLES or normalized in RETRIEVAL_SUMMARY_TITLES:
+            sections.append(heading)
+    return sections
 
 
 def strip_sections(lines: list[str], sections: list[dict[str, Any]]) -> str:
@@ -272,7 +274,6 @@ def retrieval_summary_anchors(text: str) -> list[str]:
     anchors = set()
     anchors.update(re.findall(r"`([^`\n]{2,120})`", text))
     anchors.update(item.rstrip(".,;:，。；：)") for item in re.findall(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+", text))
-    anchors.update(re.findall(r"\b[A-Za-z_][A-Za-z0-9_:.]{3,}\b", text))
     return sorted(item for item in anchors if item and not item.isdigit())
 
 
