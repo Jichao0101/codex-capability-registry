@@ -6,7 +6,7 @@ Use the skill-owned CLI from the skill root:
 python3 scripts/kb.py metadata --root <vault> [--authorized-path <path>]
 python3 scripts/kb.py lint --root <vault> [--authorized-path <path>]
 python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>
-python3 scripts/kb.py fix-registry --root <vault> --scope 02_Projects/<project-or-subproject> --authorized-path <path>
+python3 scripts/kb.py retrieval-summary-proposals --root <vault> --authorized-path <path>
 python3 scripts/kb.py retrieval-package-check --root <vault> --package <retrieval_package.json> --authorized-path <path>
 python3 scripts/kb.py preflight --root <vault> --target <relative-path> \
   --intent modify --authorized-path <vault> [--forbidden-path <path>] \
@@ -20,7 +20,7 @@ python3 scripts/kb.py hash-check --root <vault> --report <report.json>
 - `SKILL.md` and references define workflow.
 - `rules/` contains version-bound executable decisions.
 - `scripts/kb.py` executes those rules without modifying knowledge Markdown.
-- `<vault>/reports/kb/` contains run reports. Lint reports are end-of-run artifacts; keep the latest report for the current Builder call and remove stale sibling lint reports.
+- `<vault>/reports/kb/` contains run reports. Default timestamped reports keep the latest three files per report kind and prune older sibling reports.
 - `<vault>/.kb_cache/` contains disposable metadata and trace indexes.
 
 ## Write workflow
@@ -32,7 +32,7 @@ python3 scripts/kb.py hash-check --root <vault> --report <report.json>
 5. If the decision is `manual_review`, create a proposal or patch draft and obtain explicit review before applying it.
 6. If the decision is `allow`, apply only the described change intent.
 7. Run `hash-check` immediately before writing; rerun preflight if any hash changed.
-8. Run `lint` after the write, prune stale lint reports, and sync required entries.
+8. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three, then sync required entries.
 
 `free_update` never bypasses preflight. Index hits are recall candidates; the preflight report must contain verifiable source-document reads for strong and protected matches.
 
@@ -52,12 +52,12 @@ Reports and caches are derived artifacts, not fact sources. A project record may
 
 Builder may consume a Retriever `retrieval_package` as write-side evidence, but Retriever does not choose the write path. Builder checks only package authorization coverage, source sections read, candidate fields, and recall limitations. Cited source sections are re-read through Builder preflight under the target vault policy.
 
-## Fix Registry
+## Retrieval Summary Proposals
 
-Use `fix-registry` as a project/subproject-scoped recall index:
+Use `retrieval-summary-proposals` to generate report-only patch proposals for fix, decision, validation, and incident records that lack a short `Retrieval Summary` or `Retrieval Anchors` section:
 
 ```bash
-python3 scripts/kb.py fix-registry --root <vault> --scope 02_Projects/DMS/04_Tracking
+python3 scripts/kb.py retrieval-summary-proposals --root <vault> --authorized-path <vault>/02_Projects/DMS/04_Tracking
 ```
 
-The command writes a derived JSON index under `<vault>/.kb_cache/fix-registry/` unless `--output` is provided. It only derives entries from source fix Markdown under the requested scope. Manual edits may add anchors or correct summaries in the source fix document, then the registry should be regenerated; do not create fact entries directly in the registry. Registry entries use lightweight fingerprints by default; strong hashes are left to preflight/hash-check evidence paths.
+The command writes a derived report under `<vault>/reports/kb/retrieval-summary-proposals/` unless `--output` is provided. It never edits Markdown directly. For verified, guarded, critical, or current documents, automation must keep the output as a proposal until a user or authorized reviewer approves the patch.

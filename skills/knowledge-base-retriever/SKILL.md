@@ -36,7 +36,7 @@ Script responsibilities:
 - Search, directory traversal, link expansion, and section reads must stay within `authorized_paths`.
 - Do not scan the whole vault and filter afterward.
 - Report no matches as `no_match_within_authorized_scope`, not as proof that history does not exist.
-- Read Markdown source sections for candidate current, fix, decision, validation, supersession, and Fix Registry hits.
+- Read Markdown source sections for candidate current, fix, decision, validation, and supersession hits.
 - Treat `protected`, `guarded`, and `critical` as ordinary search terms or candidate signals only. They are Builder/Schema/AGENTS governance concepts, not retriever prerequisites.
 - Do not compute hashes by default. Carry existing hashes only when an input index or caller provides them. Builder owns hash checks needed for write gates.
 - Do not write, move, delete, promote, resolve supersession conflicts, or raise evidence levels.

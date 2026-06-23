@@ -8,6 +8,8 @@
     "KB-LINT-005": {"severity": "warning", "description": "formal knowledge lacks required readable metadata"},
     "KB-LINT-006": {"severity": "error", "description": "supersession target is missing"},
     "KB-LINT-007": {"severity": "error", "description": "supersession graph contains a cycle"},
-    "KB-LINT-008": {"severity": "error", "description": "current document claims unverified single-pass recoverability"}
+    "KB-LINT-008": {"severity": "error", "description": "current document claims unverified single-pass recoverability"},
+    "KB-LINT-009": {"severity": "warning", "description": "historical fix/decision/validation record lacks Retrieval Summary"},
+    "KB-LINT-010": {"severity": "warning", "description": "Retrieval Summary is too broad or includes unsupported anchors"}
   }
 }

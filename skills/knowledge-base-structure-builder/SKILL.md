@@ -66,9 +66,7 @@ Before any knowledge-base write:
 5. Run `hash-check` immediately before writing; rerun preflight when hashes changed.
 6. After writing, run read-only `lint`, remove stale lint reports from the same report directory, and perform required overview/index sync.
 
-Read `references/governance-tools.md` before using lint, trace, registry, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
-
-For project or subproject history repair lookup, use project-scoped Fix Registry rather than a global registry. Read `references/fix-registry.md` before creating, checking, or using a registry.
+Read `references/governance-tools.md` before using lint, trace, retrieval-summary proposal, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
 
 ## Placement Quick Guide
 

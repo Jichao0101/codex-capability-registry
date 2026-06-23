@@ -38,6 +38,12 @@ class Hit:
     candidate_field: str | None
 
 
+@dataclass(frozen=True)
+class DocumentRank:
+    score: int
+    reasons: tuple[str, ...]
+
+
 def norm_path(path: Path) -> Path:
     return path.expanduser().resolve()
 
@@ -230,6 +236,115 @@ def relative_to_root(root: Path, path: Path) -> str:
         return str(path)
 
 
+def infer_record_kind(rel: str) -> str:
+    lowered = rel.lower()
+    name = Path(rel).name.lower()
+    if rel.endswith("_current.md") or rel.endswith("overview_current.md"):
+        return "current"
+    if "项目总览" in rel or "总览" in name or "overview" in name:
+        return "overview"
+    if "修复" in rel or "/fixes/" in lowered:
+        return "fix"
+    if "决策" in rel or "/decisions/" in lowered:
+        return "decision"
+    if "验证" in rel or "/validation" in lowered:
+        return "validation"
+    if "coredump" in lowered or "incident" in lowered or "调查" in rel:
+        return "incident"
+    if "Current Maintenance Records" in rel or "维护记录" in rel:
+        return "maintenance"
+    return "page"
+
+
+def line_context(path: Path, line_no: int) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "body"
+    if not (1 <= line_no <= len(lines)):
+        return "body"
+    in_frontmatter = bool(lines and lines[0].strip() == "---")
+    if in_frontmatter:
+        for idx in range(1, len(lines)):
+            if lines[idx].strip() == "---":
+                if line_no <= idx + 1:
+                    return "frontmatter"
+                break
+    headings = heading_lines_outside_code(lines)
+    current_heading = ""
+    for heading_line, title in headings:
+        if heading_line <= line_no:
+            current_heading = title.lower()
+        else:
+            break
+    line_text = lines[line_no - 1]
+    if "retrieval summary" in current_heading or "retrieval anchors" in current_heading:
+        return "retrieval_summary"
+    if re.match(r"^#\s+", line_text):
+        return "title"
+    if re.search(r"source inventory|source list|sources|evidence_refs", current_heading, re.I):
+        return "source_list"
+    if in_frontmatter and line_no <= 120:
+        return "frontmatter"
+    return "body"
+
+
+def score_document(rel: str, hits: list[Hit], root: Path) -> DocumentRank:
+    kind = infer_record_kind(rel)
+    score = 0
+    reasons: list[str] = []
+    kind_weight = {
+        "fix": 45,
+        "decision": 40,
+        "validation": 38,
+        "incident": 42,
+        "maintenance": 18,
+        "current": 12,
+        "overview": 5,
+        "page": 10,
+    }.get(kind, 10)
+    score += kind_weight
+    reasons.append(f"record_kind:{kind}:{kind_weight}")
+    batches = {hit.batch for hit in hits}
+    terms = {hit.query for hit in hits}
+    score += min(len(hits), 20)
+    score += len(batches) * 3
+    score += len(terms) * 2
+    if "exact" in " ".join(batches).lower() or "title" in " ".join(batches).lower():
+        score += 18
+        reasons.append("exact_or_title_batch:+18")
+    if any("symptom" in batch.lower() for batch in batches):
+        score += 14
+        reasons.append("symptom_batch:+14")
+    if any("structure" in batch.lower() for batch in batches):
+        score -= 8
+        reasons.append("structure_batch:-8")
+
+    contexts: dict[str, int] = {}
+    for hit in hits:
+        context = line_context(hit.path, hit.line)
+        contexts[context] = contexts.get(context, 0) + 1
+    if contexts.get("retrieval_summary"):
+        score += 30
+        reasons.append("retrieval_summary_hit:+30")
+    if contexts.get("title"):
+        score += 20
+        reasons.append("title_hit:+20")
+    if contexts.get("frontmatter") and not contexts.get("body"):
+        score -= 14
+        reasons.append("frontmatter_only:-14")
+    elif contexts.get("frontmatter"):
+        score -= 6
+        reasons.append("frontmatter_hit:-6")
+    if contexts.get("source_list"):
+        score -= 10
+        reasons.append("source_list_hit:-10")
+    if kind in {"current", "overview"} and not contexts.get("body") and not contexts.get("retrieval_summary"):
+        score -= 20
+        reasons.append("aggregate_without_body_hit:-20")
+    return DocumentRank(score=score, reasons=tuple(reasons))
+
+
 def heading_lines_outside_code(lines: list[str]) -> list[tuple[int, str]]:
     headings = []
     in_fence = False
@@ -282,14 +397,20 @@ def candidate_item(hit: Hit, section: dict, root: Path) -> dict:
 
 def document_summaries(hits: list[Hit], root: Path) -> dict[str, dict]:
     docs = {}
+    hits_by_doc: dict[str, list[Hit]] = {}
     for hit in hits:
         rel = relative_to_root(root, hit.path)
         docs.setdefault(rel, {"path": rel, "hit_count": 0, "matched_batches": [], "matched_terms": []})
+        hits_by_doc.setdefault(rel, []).append(hit)
         docs[rel]["hit_count"] += 1
         if hit.batch not in docs[rel]["matched_batches"]:
             docs[rel]["matched_batches"].append(hit.batch)
         if hit.query not in docs[rel]["matched_terms"]:
             docs[rel]["matched_terms"].append(hit.query)
+    for rel, doc_hits in hits_by_doc.items():
+        rank = score_document(rel, doc_hits, root)
+        docs[rel]["rank_score"] = rank.score
+        docs[rel]["rank_reasons"] = list(rank.reasons)
     return docs
 
 
@@ -394,7 +515,7 @@ def main() -> int:
             "rg_batches": query_plan["rg_batches"],
         },
         "queries_executed": queries,
-        "candidate_documents": sorted(docs.values(), key=lambda d: (-d["hit_count"], d["path"])),
+        "candidate_documents": sorted(docs.values(), key=lambda d: (-d.get("rank_score", 0), -d["hit_count"], d["path"])),
         "source_sections_read": sections,
         **candidate_buckets,
         "unresolved_ambiguities": query_plan.get("unresolved_ambiguities", []),

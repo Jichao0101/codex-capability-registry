@@ -73,17 +73,22 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         report = json.loads(output.read_text())
         self.assertTrue(any(item["rule_id"] == "KB-LINT-002" for item in report["findings"]))
 
-    def test_lint_prunes_old_default_reports(self) -> None:
+    def test_lint_keeps_latest_three_default_reports(self) -> None:
         report_dir = self.root / "reports/kb/lint"
         report_dir.mkdir(parents=True)
-        stale = report_dir / "lint-20000101T000000000000.json"
-        stale.write_text("{}\n", encoding="utf-8")
+        stale_reports = []
+        for index in range(4):
+            stale = report_dir / f"lint-20000101T00000000000{index}.json"
+            stale.write_text("{}\n", encoding="utf-8")
+            stale_reports.append(stale)
         result = self.run_cli("lint", "--root", str(self.root))
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertFalse(stale.exists())
+        remaining = sorted(report_dir.glob("lint-*.json"))
+        self.assertEqual(len(remaining), 3)
+        self.assertFalse(stale_reports[0].exists())
         self.assertTrue(Path(payload["output"]).is_file())
-        self.assertIn(str(stale), payload["pruned_reports"])
+        self.assertIn(str(stale_reports[0]), payload["pruned_reports"])
 
     def test_preflight_verified_target_requires_review_and_reads_strong_fix(self) -> None:
         target = self.root / "01_Knowledge/item.md"
@@ -203,34 +208,55 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(report.read_text())["gate_decision"], "allow")
 
-    def test_fix_registry_is_scoped_and_derived_from_fix_docs(self) -> None:
-        tracking = self.root / "02_Projects/Demo/04_Tracking/fixes"
-        other = self.root / "02_Projects/Demo/05_Other/fixes"
-        tracking.mkdir(parents=True)
-        other.mkdir(parents=True)
-        (tracking / "binding-fix.md").write_text(
-            "---\nstatus: verified\nsummary: 修复 tracking binding 问题。\nevidence_refs:\n  - validation.md\n---\n"
-            "# Binding fix\n\n症状：tracking crash in `TrackManager::update` at source/utils/track.cpp.\n",
+    def test_lint_reports_missing_retrieval_summary_for_fix_docs(self) -> None:
+        fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
+        fix.write_text(
+            "# Binding fix\n\n症状：driver binding failed in `TrackManager::update`.\n",
             encoding="utf-8",
         )
-        (other / "other-fix.md").write_text("# Other 修复\n\n症状：other crash.\n", encoding="utf-8")
-        output = self.root / "registry.json"
+        output = self.root / "lint.json"
+        result = self.run_cli("lint", "--root", str(self.root), "--output", str(output))
+        self.assertEqual(result.returncode, 0)
+        report = json.loads(output.read_text())
+        self.assertTrue(
+            any(item["rule_id"] == "KB-LINT-009" and item["path"] == "02_Projects/Demo/fixes/binding-fix.md" for item in report["findings"])
+        )
+
+    def test_lint_reports_unsupported_retrieval_summary_anchor(self) -> None:
+        fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
+        fix.write_text(
+            "# Binding fix\n\n"
+            "## Retrieval Summary\n\n"
+            "- topic: driver binding\n"
+            "- symbols: `MissingSymbol`\n\n"
+            "正文只提到 `TrackManager::update`。\n",
+            encoding="utf-8",
+        )
+        output = self.root / "lint.json"
+        self.run_cli("lint", "--root", str(self.root), "--output", str(output))
+        report = json.loads(output.read_text())
+        self.assertTrue(
+            any(item["rule_id"] == "KB-LINT-010" and "unsupported_anchors" in " ".join(item.get("issues", [])) for item in report["findings"])
+        )
+
+    def test_retrieval_summary_proposals_are_report_only(self) -> None:
+        fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
+        original = "# Binding fix\n\n症状：driver binding failed in `TrackManager::update` at source/utils/track.cpp.\n"
+        fix.write_text(original, encoding="utf-8")
+        output = self.root / "summary-proposals.json"
         result = self.run_cli(
-            "fix-registry", "--root", str(self.root), "--scope", "02_Projects/Demo/04_Tracking", "--output", str(output),
+            "retrieval-summary-proposals", "--root", str(self.root),
+            "--authorized-path", str(self.root / "02_Projects/Demo"),
+            "--output", str(output),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        registry = json.loads(output.read_text())
-        self.assertEqual(registry["entry_count"], 1)
-        entry = registry["entries"][0]
-        self.assertEqual(entry["source_fix_doc"], "02_Projects/Demo/04_Tracking/fixes/binding-fix.md")
-        self.assertEqual(entry["source_section"], "Binding fix")
-        self.assertIn("source_fingerprint", entry)
-        self.assertIn("registry_entry_fingerprint", entry)
-        self.assertNotIn("source_document_hash", entry)
-        self.assertIn("validation.md", entry["evidence_refs"])
-        self.assertIn("TrackManager::update", entry["anchors"])
-        self.assertIn("source/utils/track.cpp", entry["affected_paths"])
-        self.assertTrue(any("tracking crash" in symptom for symptom in entry["symptoms"]))
+        report = json.loads(output.read_text())
+        self.assertEqual(report["proposal_count"], 1)
+        proposal = report["proposals"][0]
+        self.assertEqual(proposal["target_path"], "02_Projects/Demo/fixes/binding-fix.md")
+        self.assertTrue(proposal["proposal_only"])
+        self.assertIn("## Retrieval Summary", proposal["proposed_section"])
+        self.assertEqual(fix.read_text(encoding="utf-8"), original)
 
     def test_retrieval_package_can_drive_preflight_source_read(self) -> None:
         target = self.root / "02_Projects/Demo/design.md"

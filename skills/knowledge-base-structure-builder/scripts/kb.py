@@ -32,6 +32,8 @@ EXCLUDED_DIRS = {".git", ".kb_cache", "reports", "node_modules", "__pycache__"}
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 TERM_RE = re.compile(r"[A-Za-z0-9_./+-]+|[\u3400-\u9fff]{2,}")
+RETRIEVAL_SUMMARY_TITLES = {"retrieval summary", "retrieval anchors"}
+RETRIEVAL_SUMMARY_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
 
 
 class GovernanceError(RuntimeError):
@@ -247,6 +249,49 @@ def headings_and_sections(lines: list[str]) -> list[dict[str, Any]]:
     return headings
 
 
+def section_text(lines: list[str], heading: dict[str, Any]) -> str:
+    return "\n".join(lines[heading["line"] - 1 : heading["end_line"]])
+
+
+def find_retrieval_summary_sections(lines: list[str]) -> list[dict[str, Any]]:
+    return [
+        heading
+        for heading in headings_and_sections(lines)
+        if heading["title"].strip().lower() in RETRIEVAL_SUMMARY_TITLES
+    ]
+
+
+def strip_sections(lines: list[str], sections: list[dict[str, Any]]) -> str:
+    excluded: set[int] = set()
+    for section in sections:
+        excluded.update(range(section["line"], section["end_line"] + 1))
+    return "\n".join(line for index, line in enumerate(lines, start=1) if index not in excluded)
+
+
+def retrieval_summary_anchors(text: str) -> list[str]:
+    anchors = set()
+    anchors.update(re.findall(r"`([^`\n]{2,120})`", text))
+    anchors.update(item.rstrip(".,;:，。；：)") for item in re.findall(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+", text))
+    anchors.update(re.findall(r"\b[A-Za-z_][A-Za-z0-9_:.]{3,}\b", text))
+    return sorted(item for item in anchors if item and not item.isdigit())
+
+
+def retrieval_summary_quality(lines: list[str], section: dict[str, Any]) -> list[str]:
+    text = section_text(lines, section)
+    body_without_summary = strip_sections(lines, [section])
+    issues = []
+    non_empty = [line for line in text.splitlines()[1:] if line.strip()]
+    if len(non_empty) > 18 or len(text) > 1400:
+        issues.append("summary_too_long")
+    anchors = retrieval_summary_anchors(text)
+    if len(anchors) > 35:
+        issues.append("too_many_anchors")
+    unsupported = [anchor for anchor in anchors if anchor not in body_without_summary]
+    if unsupported:
+        issues.append("unsupported_anchors:" + ", ".join(unsupported[:8]))
+    return issues
+
+
 def derive_project_module(rel: str) -> tuple[str | None, str | None]:
     parts = Path(rel).parts
     if len(parts) >= 2 and parts[0] == "02_Projects":
@@ -341,12 +386,18 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def prune_sibling_reports(output: Path, kind: str) -> list[str]:
+def prune_old_reports(output: Path, kind: str, keep: int = 3) -> list[str]:
+    reports = sorted(
+        output.parent.glob(f"{kind}-*.json"),
+        key=lambda path: (path.stat().st_mtime_ns, path.name),
+        reverse=True,
+    )
     removed = []
-    for path in output.parent.glob(f"{kind}-*.json"):
-        if path == output:
+    for path in reports[keep:]:
+        try:
+            path.unlink()
+        except FileNotFoundError:
             continue
-        path.unlink()
         removed.append(str(path))
     return removed
 
@@ -457,6 +508,26 @@ def lint_report(root: Path, metadata: dict[str, Any]) -> dict[str, Any]:
                 add("KB-LINT-005", doc["path"], "missing formal metadata", missing=missing)
         if doc["frontmatter"].get("single_pass_recoverable") is True:
             add("KB-LINT-008", doc["path"], "single_pass_recoverable=true requires independent verification")
+        if doc["record_type"] in RETRIEVAL_SUMMARY_RECORD_TYPES:
+            path = root / doc["path"]
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                lines = []
+            summaries = find_retrieval_summary_sections(lines)
+            if not summaries:
+                add("KB-LINT-009", doc["path"], "missing Retrieval Summary or Retrieval Anchors section")
+            else:
+                for summary_section in summaries:
+                    issues = retrieval_summary_quality(lines, summary_section)
+                    if issues:
+                        add(
+                            "KB-LINT-010",
+                            doc["path"],
+                            "Retrieval Summary needs manual review",
+                            section=summary_section["title"],
+                            issues=issues,
+                        )
 
     entry_set = set(required_entries)
     for path, count in inbound.items():
@@ -503,7 +574,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
     default_output = args.output is None
     output = Path(args.output).resolve() if args.output else timestamped_report(root, "lint")
     write_json(output, report)
-    pruned = prune_sibling_reports(output, "lint") if default_output else []
+    pruned = prune_old_reports(output, "lint") if default_output else []
     print(json.dumps({"output": str(output), "summary": report["summary"], "pruned_reports": pruned}, ensure_ascii=False))
     return 1 if report["summary"].get("error", 0) else 0
 
@@ -561,11 +632,6 @@ def cmd_trace_index(args: argparse.Namespace) -> int:
     return 0
 
 
-def registry_scope_output(root: Path, scope: str) -> Path:
-    slug = re.sub(r"[^A-Za-z0-9_.-]+", "__", scope.strip("/"))
-    return root / ".kb_cache" / "fix-registry" / f"{slug or 'root'}.json"
-
-
 def first_body_paragraph(text: str) -> str:
     body = re.sub(r"(?s)^---\n.*?\n---\n", "", text).strip()
     lines = []
@@ -581,7 +647,7 @@ def first_body_paragraph(text: str) -> str:
     return " ".join(lines)[:300]
 
 
-def extract_registry_terms(text: str) -> dict[str, list[str]]:
+def extract_retrieval_terms(text: str) -> dict[str, list[str]]:
     code_spans = re.findall(r"`([^`\n]{2,120})`", text)
     paths = [item.rstrip(".,;:，。；：)") for item in re.findall(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+", text)]
     symbols = re.findall(r"\b[A-Za-z_][A-Za-z0-9_:.]{2,}\b", text)
@@ -605,94 +671,96 @@ def extract_registry_terms(text: str) -> dict[str, list[str]]:
     }
 
 
-def source_fingerprint(path: Path, root: Path, section: dict[str, Any] | None = None) -> str:
-    stat = path.stat()
-    parts = [path.relative_to(root).as_posix(), f"mtime_ns={stat.st_mtime_ns}", f"size={stat.st_size}"]
-    if section:
-        parts.append(f"section={section['title']}:{section['line']}-{section['end_line']}")
-    return "|".join(parts)
+def compact_list(items: list[str], limit: int = 5) -> str:
+    clean = []
+    for item in items:
+        stripped = re.sub(r"\s+", " ", item).strip()
+        if stripped and stripped not in clean:
+            clean.append(stripped)
+        if len(clean) >= limit:
+            break
+    return "; ".join(clean)
 
 
-def registry_entry_fingerprint(entry: dict[str, Any]) -> str:
-    stable = {
-        key: entry.get(key)
-        for key in (
-            "source_fix_doc",
-            "source_section",
-            "summary",
-            "affected_paths",
-            "symbols",
-            "symptoms",
-            "constraints",
-            "validation",
-            "status",
-            "supersedes",
-            "superseded_by",
-        )
-    }
-    return sha256_bytes(json.dumps(stable, ensure_ascii=False, sort_keys=True).encode())
+def proposed_retrieval_summary(doc: dict[str, Any], raw: str) -> str:
+    terms = extract_retrieval_terms(raw)
+    title = doc["title"]
+    summary = str(doc["frontmatter"].get("summary") or first_body_paragraph(raw))
+    topic = title
+    component = " / ".join(item for item in (doc.get("project"), doc.get("module")) if item)
+    symptoms = compact_list(terms["symptoms"], 3)
+    affected_paths = compact_list(terms["paths"], 5)
+    symbols = compact_list(terms["anchors"] + terms["symbols"], 8)
+    constraints = compact_list(terms["constraints"], 3)
+    validation = compact_list(terms["validation"], 3)
+    aliases = compact_list([title, summary], 2)
+    fields = [
+        ("topic", topic),
+        ("component", component),
+        ("symptoms", symptoms),
+        ("affected_paths", affected_paths),
+        ("symbols", symbols),
+        ("constraints", constraints),
+        ("validation", validation),
+        ("aliases", aliases),
+    ]
+    lines = ["## Retrieval Summary", ""]
+    for key, value in fields:
+        lines.append(f"- {key}: {value or 'manual_review_required'}")
+    return "\n".join(lines)
 
 
-def build_fix_registry(root: Path, scope: str, authorized: list[Path] | None = None) -> dict[str, Any]:
-    scope_path = (root / scope).resolve(strict=False)
-    if root not in scope_path.parents and scope_path != root:
-        raise GovernanceError(f"scope must be inside root: {scope}")
-    authorized_roots = [root] if authorized is None else authorized
-    if not under_any(scope_path, authorized_roots):
-        raise GovernanceError(f"scope is outside authorized paths: {scope}")
-    metadata = build_metadata(root, authorized_roots)
-    entries = []
+def build_retrieval_summary_proposals(root: Path, authorized: list[Path], limit: int) -> dict[str, Any]:
+    metadata = build_metadata(root, authorized)
+    proposals = []
     for doc in metadata["documents"]:
-        doc_path = (root / doc["path"]).resolve(strict=False)
-        if doc["record_type"] != "fix" or not (doc_path == scope_path or scope_path in doc_path.parents):
+        if doc["record_type"] not in RETRIEVAL_SUMMARY_RECORD_TYPES:
             continue
-        raw = doc_path.read_text(encoding="utf-8", errors="replace")
-        terms = extract_registry_terms(raw)
-        first_section = doc["headings"][0] if doc["headings"] else None
-        entry = {
-            "source_fix_doc": doc["path"],
-            "source_section": first_section["title"] if first_section else "document-start",
-            "source_fingerprint": source_fingerprint(doc_path, root, first_section),
-            "title": doc["title"],
-            "project": doc["project"],
-            "module": doc["module"],
+        path = root / doc["path"]
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        lines = raw.splitlines()
+        if find_retrieval_summary_sections(lines):
+            continue
+        proposal = proposed_retrieval_summary(doc, raw)
+        proposals.append({
+            "target_path": doc["path"],
+            "record_type": doc["record_type"],
             "status": doc["effective"].get("status"),
-            "authority_status": doc["authority_status"],
-            "summary": doc["frontmatter"].get("summary") or first_body_paragraph(raw),
-            "evidence_refs": doc["effective"].get("evidence_refs", []),
-            "supersedes": doc["effective"].get("supersedes", []),
-            "superseded_by": doc["effective"].get("superseded_by", []),
-            "headings": [{"title": item["title"], "line": item["line"]} for item in doc["headings"]],
-            "anchors": terms["anchors"],
-            "affected_paths": terms["paths"],
-            "symbols": terms["symbols"],
-            "symptoms": terms["symptoms"],
-            "constraints": terms["constraints"],
-            "validation": terms["validation"],
-        }
-        entry["registry_entry_fingerprint"] = registry_entry_fingerprint(entry)
-        entries.append(entry)
+            "protection_level": doc["effective"].get("protection_level"),
+            "change_policy": doc["effective"].get("change_policy"),
+            "proposal_only": True,
+            "gate_reason": "retrieval_summary_missing; automation must not directly edit verified/guarded/current records",
+            "proposed_section": proposal,
+            "supporting_source": {
+                "title": doc["title"],
+                "summary": doc["frontmatter"].get("summary"),
+                "evidence_refs": doc["effective"].get("evidence_refs", []),
+                "first_body_paragraph": first_body_paragraph(raw),
+            },
+        })
+        if len(proposals) >= limit:
+            break
     return {
         "generated_at": utc_now(),
         "tool_version": TOOL_VERSION,
         "skill_content_hash": skill_content_hash(),
         "ruleset_hash": ruleset_hash(),
         "repository_revision": repository_revision(root),
-        "root": str(root),
-        "scope": scope,
-        "entries": entries,
-        "entry_count": len(entries),
-        "authority": "derived_from_source_fix_docs",
+        "authorized_paths": [str(path) for path in authorized],
+        "proposal_count": len(proposals),
+        "proposals": proposals,
     }
 
 
-def cmd_fix_registry(args: argparse.Namespace) -> int:
+def cmd_retrieval_summary_proposals(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     authorized = normalize_authorized_paths(root, args.authorized_path)
-    registry = build_fix_registry(root, args.scope, authorized)
-    output = Path(args.output).resolve() if args.output else registry_scope_output(root, args.scope)
-    write_json(output, registry)
-    print(json.dumps({"output": str(output), "entries": registry["entry_count"], "scope": args.scope}, ensure_ascii=False))
+    report = build_retrieval_summary_proposals(root, authorized, args.limit)
+    default_output = args.output is None
+    output = Path(args.output).resolve() if args.output else timestamped_report(root, "retrieval-summary-proposals")
+    write_json(output, report)
+    pruned = prune_old_reports(output, "retrieval-summary-proposals") if default_output else []
+    print(json.dumps({"output": str(output), "proposals": report["proposal_count"], "pruned_reports": pruned}, ensure_ascii=False))
     return 0
 
 
@@ -1053,7 +1121,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     }
     output = Path(args.output).resolve() if args.output else timestamped_report(root, "preflight")
     write_json(output, report)
-    print(json.dumps({"output": str(output), "gate_decision": decision, "matched_records": len(matches)}, ensure_ascii=False))
+    pruned = prune_old_reports(output, "preflight") if args.output is None else []
+    print(json.dumps({"output": str(output), "gate_decision": decision, "matched_records": len(matches), "pruned_reports": pruned}, ensure_ascii=False))
     return 0 if decision == "allow" else (2 if decision == "manual_review" else 3)
 
 
@@ -1098,12 +1167,12 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
         command.add_argument("--output")
         command.set_defaults(handler=handler)
-    registry = sub.add_parser("fix-registry")
-    registry.add_argument("--root", required=True)
-    registry.add_argument("--scope", required=True, help="project or subproject relative path, for example 02_Projects/DMS/04_Tracking")
-    registry.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
-    registry.add_argument("--output")
-    registry.set_defaults(handler=cmd_fix_registry)
+    summary_proposals = sub.add_parser("retrieval-summary-proposals")
+    summary_proposals.add_argument("--root", required=True)
+    summary_proposals.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
+    summary_proposals.add_argument("--limit", type=int, default=50)
+    summary_proposals.add_argument("--output")
+    summary_proposals.set_defaults(handler=cmd_retrieval_summary_proposals)
     package_check = sub.add_parser("retrieval-package-check")
     package_check.add_argument("--root", required=True)
     package_check.add_argument("--package", required=True)
