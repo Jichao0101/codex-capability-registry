@@ -8,6 +8,8 @@ python3 scripts/kb.py lint --root <vault> [--authorized-path <path>]
 python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>
 python3 scripts/kb.py retrieval-summary-proposals --root <vault> --authorized-path <path>
 python3 scripts/kb.py retrieval-package-check --root <vault> --package <retrieval_package.json> --authorized-path <path>
+python3 scripts/kb.py minimal-apply-check --root <vault> --target <relative-path> \
+  --intent append --change-class retrieval_summary_append --authorized-path <path>
 python3 scripts/kb.py preflight --root <vault> --target <relative-path> \
   --intent modify --authorized-path <vault> [--forbidden-path <path>] \
   --policy-file <vault>/AGENTS.md [--retrieval-package <retrieval_package.json>] [--query "terms"] [--trace-index <index.json>]
@@ -23,7 +25,35 @@ python3 scripts/kb.py hash-check --root <vault> --report <report.json>
 - `<vault>/reports/kb/` contains run reports. Default timestamped reports keep the latest three files per report kind and prune older sibling reports.
 - `<vault>/.kb_cache/` contains disposable metadata and trace indexes.
 
-## Write workflow
+## Gate granularity
+
+Proposal-only commands do not edit Markdown and do not require trace-index, preflight, or hash-check.
+
+Low-risk non-fact append operations use `minimal-apply-check` immediately before editing Markdown. This check only validates policy readability, explicit authorized scope, target readability/creatability, forbidden paths, target hash snapshot, and whether the change class must be escalated to full preflight. It does not build trace-index, read strong records, or scan source documents.
+
+Full preflight is whitelist-only. Use `trace-index` + `preflight` + `hash-check` for:
+
+- current document group updates
+- delete or move
+- formal knowledge promotion
+- external source promotion
+- supersession
+- conclusion replacement
+- protected rewrites
+- metadata/status changes
+- evidence-level changes
+- guarded or critical targets
+
+If `minimal-apply-check` returns `requires_full_preflight`, switch to the full workflow.
+
+## Minimal apply workflow
+
+1. Read the target and enough local context to ensure the proposed append is supported by that document.
+2. Run `minimal-apply-check` before editing.
+3. If the decision is `allow`, apply only the checked append.
+4. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three.
+
+## Full preflight workflow
 
 1. Read the vault entry and relevant project/module overview.
 2. Run `trace-index` when the cache is missing or stale. Pass authorized paths so the index is not built by scanning the whole vault first.
@@ -34,7 +64,7 @@ python3 scripts/kb.py hash-check --root <vault> --report <report.json>
 7. Run `hash-check` immediately before writing; rerun preflight if any hash changed.
 8. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three, then sync required entries.
 
-`free_update` never bypasses preflight. Index hits are recall candidates; the preflight report must contain verifiable source-document reads for strong and protected matches.
+`free_update` never bypasses the applicable gate. Index hits are recall candidates; when full preflight is required, the preflight report must contain verifiable source-document reads for strong and protected matches.
 
 ## Preflight intent
 
@@ -60,4 +90,4 @@ Use `retrieval-summary-proposals` to generate report-only patch proposals for fi
 python3 scripts/kb.py retrieval-summary-proposals --root <vault> --authorized-path <vault>/02_Projects/DMS/04_Tracking
 ```
 
-The command writes a derived report under `<vault>/reports/kb/retrieval-summary-proposals/` unless `--output` is provided. It never edits Markdown directly. For verified, guarded, critical, or current documents, automation must keep the output as a proposal until a user or authorized reviewer approves the patch.
+The command writes a derived report under `<vault>/reports/kb/retrieval-summary-proposals/` unless `--output` is provided. It never edits Markdown directly and does not require trace-index, preflight, or hash-check. Apply the approved patch only after `minimal-apply-check` returns `allow`; if the target or change class requires full preflight, follow the full workflow instead.

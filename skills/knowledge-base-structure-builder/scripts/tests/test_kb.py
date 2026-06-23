@@ -208,6 +208,58 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(report.read_text())["gate_decision"], "allow")
 
+    def test_minimal_apply_check_allows_retrieval_summary_append_without_trace_index(self) -> None:
+        fix = self.root / "02_Projects/Demo/Current Maintenance Records/binding-fix.md"
+        fix.parent.mkdir(parents=True, exist_ok=True)
+        fix.write_text("---\nstatus: verified\n---\n# Binding fix\n\nBody text.\n", encoding="utf-8")
+        report = self.root / "minimal.json"
+        result = self.run_cli(
+            "minimal-apply-check", "--root", str(self.root),
+            "--target", "02_Projects/Demo/Current Maintenance Records/binding-fix.md",
+            "--intent", "append", "--change-class", "retrieval_summary_append",
+            "--authorized-path", str(self.root / "02_Projects/Demo"),
+            "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "allow")
+        self.assertFalse(data["checks"]["trace_index_used"])
+        self.assertFalse((self.root / ".kb_cache/trace-index/index.json").exists())
+        self.assertEqual(data["input"]["target_record_type"], "maintenance")
+        self.assertTrue(data["minimal_apply_snapshot"]["target_hashes_before_apply"])
+
+    def test_minimal_apply_check_requires_full_preflight_for_current_target(self) -> None:
+        current = self.root / "02_Projects/Demo/overview_current.md"
+        current.write_text("# Current\n", encoding="utf-8")
+        report = self.root / "minimal.json"
+        result = self.run_cli(
+            "minimal-apply-check", "--root", str(self.root),
+            "--target", "02_Projects/Demo/overview_current.md",
+            "--intent", "append", "--change-class", "retrieval_summary_append",
+            "--authorized-path", str(self.root / "02_Projects/Demo"),
+            "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "requires_full_preflight")
+        self.assertIn("target_record_type:current", data["checks"]["full_preflight_reasons"])
+
+    def test_minimal_apply_check_requires_full_preflight_for_conclusion_replacement(self) -> None:
+        note = self.root / "02_Projects/Demo/note.md"
+        note.write_text("# Note\n", encoding="utf-8")
+        report = self.root / "minimal.json"
+        result = self.run_cli(
+            "minimal-apply-check", "--root", str(self.root),
+            "--target", "02_Projects/Demo/note.md",
+            "--intent", "modify", "--change-class", "conclusion_replacement",
+            "--authorized-path", str(self.root / "02_Projects/Demo"),
+            "--replaces-conclusion", "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "requires_full_preflight")
+        self.assertIn("change_class:conclusion_replacement", data["checks"]["full_preflight_reasons"])
+
     def test_lint_reports_missing_retrieval_summary_for_fix_docs(self) -> None:
         fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
         fix.write_text(
@@ -255,6 +307,8 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         proposal = report["proposals"][0]
         self.assertEqual(proposal["target_path"], "02_Projects/Demo/fixes/binding-fix.md")
         self.assertTrue(proposal["proposal_only"])
+        self.assertEqual(proposal["apply_check"]["recommended_command"], "minimal-apply-check")
+        self.assertIn("no trace-index/preflight/hash-check", proposal["gate_reason"])
         self.assertIn("## Retrieval Summary", proposal["proposed_section"])
         self.assertEqual(fix.read_text(encoding="utf-8"), original)
 

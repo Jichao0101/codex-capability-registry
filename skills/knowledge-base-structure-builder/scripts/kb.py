@@ -34,6 +34,19 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 TERM_RE = re.compile(r"[A-Za-z0-9_./+-]+|[\u3400-\u9fff]{2,}")
 RETRIEVAL_SUMMARY_TITLES = {"retrieval summary", "retrieval anchors"}
 RETRIEVAL_SUMMARY_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
+FULL_PREFLIGHT_CHANGE_CLASSES = {
+    "current_group_update",
+    "delete",
+    "move",
+    "formal_knowledge_promotion",
+    "external_source_promotion",
+    "supersession",
+    "conclusion_replacement",
+    "protected_rewrite",
+    "metadata_status_change",
+    "evidence_level_change",
+    "guarded_or_critical_target",
+}
 
 
 class GovernanceError(RuntimeError):
@@ -730,7 +743,12 @@ def build_retrieval_summary_proposals(root: Path, authorized: list[Path], limit:
             "protection_level": doc["effective"].get("protection_level"),
             "change_policy": doc["effective"].get("change_policy"),
             "proposal_only": True,
-            "gate_reason": "retrieval_summary_missing; automation must not directly edit verified/guarded/current records",
+            "gate_reason": "proposal_only; no trace-index/preflight/hash-check required until Markdown apply",
+            "apply_check": {
+                "recommended_command": "minimal-apply-check",
+                "change_class": "retrieval_summary_append",
+                "intent": "append",
+            },
             "proposed_section": proposal,
             "supporting_source": {
                 "title": doc["title"],
@@ -1159,6 +1177,105 @@ def cmd_hash_check(args: argparse.Namespace) -> int:
     return 0 if not mismatches else 4
 
 
+def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
+    root = Path(args.root).resolve()
+    target = (root / args.target).resolve(strict=False)
+    try:
+        target_rel = target.relative_to(root).as_posix()
+    except ValueError:
+        target_rel = args.target
+    authorized = [Path(value).resolve() for value in args.authorized_path]
+    forbidden = [Path(value).resolve() for value in args.forbidden_path]
+    policy_file = Path(args.policy_file).resolve() if args.policy_file else root / "AGENTS.md"
+    policy_unreadable = not policy_file.is_file() or not os.access(policy_file, os.R_OK)
+    target_outside_root = root not in target.parents and target != root
+    target_forbidden = (
+        policy_unreadable
+        or not authorized
+        or target_outside_root
+        or not is_authorized(target, authorized)
+        or any(is_authorized(target, [path]) for path in forbidden)
+    )
+    create_parent = nearest_existing_parent(target)
+    target_unreadable = (args.intent != "create" and (not target.is_file() or not os.access(target, os.R_OK))) or (
+        args.intent == "create" and (not create_parent.is_dir() or not os.access(create_parent, os.R_OK))
+    )
+    metadata = target_metadata(root, target) if not target_outside_root and not target_forbidden else {"declared": {}, "effective": {}, "document_hash": None, "record_type": None}
+    record_type = metadata.get("record_type") or derive_record_type(target_rel)
+    effective = metadata.get("effective", {})
+    full_preflight_reasons = []
+    if args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES:
+        full_preflight_reasons.append(f"change_class:{args.change_class}")
+    if args.intent not in {"append", "create"}:
+        full_preflight_reasons.append(f"intent:{args.intent}")
+    if record_type == "current":
+        full_preflight_reasons.append("target_record_type:current")
+    if target_rel.startswith("01_Knowledge/"):
+        full_preflight_reasons.append("formal_knowledge_target")
+    if effective.get("protection_level") in {"guarded", "critical"}:
+        full_preflight_reasons.append(f"protection_level:{effective.get('protection_level')}")
+    if args.replaces_conclusion:
+        full_preflight_reasons.append("replaces_conclusion")
+    if args.supersedes:
+        full_preflight_reasons.append("supersedes")
+
+    target_hashes = []
+    if target.is_file():
+        target_hashes.append({"path": target_rel, "hash": sha256_file(target)})
+    elif args.intent != "create":
+        target_unreadable = True
+
+    decision = "allow"
+    if target_forbidden or target_unreadable:
+        decision = "blocked"
+    elif full_preflight_reasons:
+        decision = "requires_full_preflight"
+
+    report = {
+        "minimal_apply_snapshot": {
+            "generated_at": utc_now(),
+            "skill_content_hash": skill_content_hash(),
+            "tool_version": TOOL_VERSION,
+            "ruleset_hash": ruleset_hash(),
+            "repository_revision": repository_revision(root),
+            "authorized_paths": [str(path) for path in authorized],
+            "policy_file": str(policy_file),
+            "policy_hash": sha256_file(policy_file) if not policy_unreadable else None,
+            "target_files": [target_rel],
+            "target_hashes_before_apply": target_hashes,
+        },
+        "input": {
+            "target_path": target_rel,
+            "intent": args.intent,
+            "change_class": args.change_class,
+            "change_summary": args.change_summary,
+            "target_effective_metadata": effective,
+            "target_record_type": record_type,
+        },
+        "checks": {
+            "policy_readable": not policy_unreadable,
+            "authorized_path_provided": bool(authorized),
+            "target_in_authorized_scope": bool(authorized) and is_authorized(target, authorized),
+            "target_in_forbidden_scope": any(is_authorized(target, [path]) for path in forbidden),
+            "target_readable_or_creatable": not target_unreadable,
+            "trace_index_used": False,
+            "source_documents_read": False,
+            "full_preflight_required": bool(full_preflight_reasons),
+            "full_preflight_reasons": full_preflight_reasons,
+        },
+        "gate_decision": decision,
+    }
+    output = Path(args.output).resolve() if args.output else timestamped_report(root, "minimal-apply-check")
+    write_json(output, report)
+    pruned = prune_old_reports(output, "minimal-apply-check") if args.output is None else []
+    print(json.dumps({"output": str(output), "gate_decision": decision, "pruned_reports": pruned}, ensure_ascii=False))
+    if decision == "allow":
+        return 0
+    if decision == "requires_full_preflight":
+        return 2
+    return 3
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1199,6 +1316,19 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--trace-index", help="explicit trace index; stale input blocks instead of rebuilding")
     preflight.add_argument("--output")
     preflight.set_defaults(handler=cmd_preflight)
+    minimal = sub.add_parser("minimal-apply-check")
+    minimal.add_argument("--root", required=True)
+    minimal.add_argument("--target", required=True)
+    minimal.add_argument("--intent", choices=("create", "append", "modify", "delete", "supersede"), required=True)
+    minimal.add_argument("--change-class", required=True)
+    minimal.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
+    minimal.add_argument("--forbidden-path", action="append", default=[], help="repeat for policy-forbidden roots resolved by the workflow")
+    minimal.add_argument("--policy-file", help="policy authority; defaults to <root>/AGENTS.md")
+    minimal.add_argument("--change-summary", default="")
+    minimal.add_argument("--supersedes", action="append", default=[])
+    minimal.add_argument("--replaces-conclusion", action="store_true")
+    minimal.add_argument("--output")
+    minimal.set_defaults(handler=cmd_minimal_apply_check)
     check = sub.add_parser("hash-check")
     check.add_argument("--root", required=True)
     check.add_argument("--report", required=True)

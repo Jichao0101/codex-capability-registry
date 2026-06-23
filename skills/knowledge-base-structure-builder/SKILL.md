@@ -57,7 +57,20 @@ Builder must not depend on Retriever internals, rerun Retriever's query planning
 
 Treat the target vault's `AGENTS.md` as policy authority. Keep this skill's workflow, `rules/`, and `scripts/` version-bound; do not create a second repo-level implementation unless an independent CI, CLI, agent, or skill consumer exists.
 
-Before any knowledge-base write:
+Use gate granularity by change class:
+
+- Proposal-only report generation, including `retrieval-summary-proposals`, does not require trace-index, preflight, or hash-check because it does not edit Markdown.
+- Low-risk non-fact apply operations, such as appending a `Retrieval Summary` to an original fix/decision/validation/incident record, use `minimal-apply-check` immediately before editing Markdown.
+- Full preflight is whitelist-only. Use `trace-index` + `preflight` + `hash-check` for current document group updates, delete/move, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, metadata/status changes, evidence-level changes, and guarded/critical targets.
+
+For low-risk apply:
+
+1. Read the target and enough local context to ensure the proposed summary is supported by the document itself.
+2. Run `python3 scripts/kb.py minimal-apply-check --root <vault> --target <path> --intent append --change-class retrieval_summary_append --authorized-path <path>`.
+3. Apply only the checked append when the decision is `allow`; if the decision is `requires_full_preflight`, switch to the full workflow.
+4. Run read-only `lint` after the write and sync entries only when placement, scope, status, current fact source, or recoverability changed.
+
+For full-preflight whitelist changes:
 
 1. Read authorized entries and the relevant project/module overview.
 2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>`.
