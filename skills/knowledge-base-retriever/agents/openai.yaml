@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Base Retriever"
+  short_description: "Execute agent-planned authorized Markdown retrieval."
+  default_prompt: "Plan a structured query_plan, then retrieve relevant knowledge-base context using authorized paths: <paths>. Question: <question>"
