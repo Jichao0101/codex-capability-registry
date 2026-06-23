@@ -44,6 +44,18 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(doc["effective"]["evidence_refs"], ["internal"])
         self.assertEqual(doc["value_origin"]["evidence_refs"], "legacy_alias:sources")
 
+    def test_metadata_respects_authorized_paths(self) -> None:
+        (self.root / "01_Knowledge/item.md").write_text("# Knowledge Item\n", encoding="utf-8")
+        (self.root / "02_Projects/Demo/project.md").write_text("# Project Item\n", encoding="utf-8")
+        output = self.root / "metadata.json"
+        result = self.run_cli(
+            "metadata", "--root", str(self.root), "--authorized-path", str(self.root / "02_Projects"), "--output", str(output),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        paths = {item["path"] for item in json.loads(output.read_text())["documents"]}
+        self.assertIn("02_Projects/Demo/project.md", paths)
+        self.assertNotIn("01_Knowledge/item.md", paths)
+
     def test_legacy_status_and_folder_links_do_not_raise_enum_or_link_errors(self) -> None:
         path = self.root / "02_Projects/legacy.md"
         path.write_text("---\nstatus: pending_review\n---\n# Legacy\n[[03_Inbox]]\n", encoding="utf-8")
@@ -60,6 +72,18 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         report = json.loads(output.read_text())
         self.assertTrue(any(item["rule_id"] == "KB-LINT-002" for item in report["findings"]))
+
+    def test_lint_prunes_old_default_reports(self) -> None:
+        report_dir = self.root / "reports/kb/lint"
+        report_dir.mkdir(parents=True)
+        stale = report_dir / "lint-20000101T000000000000.json"
+        stale.write_text("{}\n", encoding="utf-8")
+        result = self.run_cli("lint", "--root", str(self.root))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(stale.exists())
+        self.assertTrue(Path(payload["output"]).is_file())
+        self.assertIn(str(stale), payload["pruned_reports"])
 
     def test_preflight_verified_target_requires_review_and_reads_strong_fix(self) -> None:
         target = self.root / "01_Knowledge/item.md"
@@ -78,6 +102,14 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertTrue(any(item["path"].endswith("driver-binding-fix.md") for item in data["source_documents_read"]))
         check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_preflight_requires_explicit_authorized_path(self) -> None:
+        target = self.root / "03_Inbox/note.md"
+        target.write_text("# Note\n", encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli("preflight", "--root", str(self.root), "--target", "03_Inbox/note.md", "--intent", "modify", "--output", str(report))
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(json.loads(report.read_text())["gate_decision"], "blocked")
 
     def test_append_only_modify_is_blocked(self) -> None:
         target = self.root / "04_Sources/source.md"
@@ -132,6 +164,21 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(check.returncode, 4)
         self.assertIn("AGENTS.md", check.stdout)
 
+    def test_hash_check_ignores_unauthorized_scope_changes(self) -> None:
+        target = self.root / "02_Projects/Demo/note.md"
+        target.write_text("# Note\n", encoding="utf-8")
+        outside = self.root / "01_Knowledge/outside.md"
+        outside.write_text("# Outside\n", encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli(
+            "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/note.md",
+            "--intent", "modify", "--authorized-path", str(self.root / "02_Projects"), "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outside.write_text("# Outside changed\n", encoding="utf-8")
+        check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
     def test_replacing_conclusion_without_reciprocal_supersession_is_blocked(self) -> None:
         target = self.root / "01_Knowledge/item.md"
         target.write_text("# Item\n", encoding="utf-8")
@@ -155,6 +202,78 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(report.read_text())["gate_decision"], "allow")
+
+    def test_fix_registry_is_scoped_and_derived_from_fix_docs(self) -> None:
+        tracking = self.root / "02_Projects/Demo/04_Tracking/fixes"
+        other = self.root / "02_Projects/Demo/05_Other/fixes"
+        tracking.mkdir(parents=True)
+        other.mkdir(parents=True)
+        (tracking / "binding-fix.md").write_text(
+            "---\nstatus: verified\nsummary: 修复 tracking binding 问题。\nevidence_refs:\n  - validation.md\n---\n"
+            "# Binding fix\n\n症状：tracking crash in `TrackManager::update` at source/utils/track.cpp.\n",
+            encoding="utf-8",
+        )
+        (other / "other-fix.md").write_text("# Other 修复\n\n症状：other crash.\n", encoding="utf-8")
+        output = self.root / "registry.json"
+        result = self.run_cli(
+            "fix-registry", "--root", str(self.root), "--scope", "02_Projects/Demo/04_Tracking", "--output", str(output),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        registry = json.loads(output.read_text())
+        self.assertEqual(registry["entry_count"], 1)
+        entry = registry["entries"][0]
+        self.assertEqual(entry["source_fix_doc"], "02_Projects/Demo/04_Tracking/fixes/binding-fix.md")
+        self.assertEqual(entry["source_section"], "Binding fix")
+        self.assertIn("source_fingerprint", entry)
+        self.assertIn("registry_entry_fingerprint", entry)
+        self.assertNotIn("source_document_hash", entry)
+        self.assertIn("validation.md", entry["evidence_refs"])
+        self.assertIn("TrackManager::update", entry["anchors"])
+        self.assertIn("source/utils/track.cpp", entry["affected_paths"])
+        self.assertTrue(any("tracking crash" in symptom for symptom in entry["symptoms"]))
+
+    def test_retrieval_package_can_drive_preflight_source_read(self) -> None:
+        target = self.root / "02_Projects/Demo/design.md"
+        target.write_text("# Design\n", encoding="utf-8")
+        fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
+        fix.write_text("# Binding fix\nKeep binding constraint.\n", encoding="utf-8")
+        package = self.root / "retrieval_package.json"
+        package.write_text(json.dumps({
+            "authorized_paths": [str(self.root / "02_Projects")],
+            "source_sections_read": [{"path": "02_Projects/Demo/fixes/binding-fix.md", "heading": "Binding fix"}],
+            "candidate_fixes": [{"source_path": "02_Projects/Demo/fixes/binding-fix.md"}],
+            "recall_limitations": [],
+        }), encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli(
+            "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
+            "--intent", "modify", "--authorized-path", str(self.root / "02_Projects"),
+            "--retrieval-package", str(package), "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertTrue(data["retrieval_package_check"]["valid"])
+        self.assertTrue(any(item["path"] == "02_Projects/Demo/fixes/binding-fix.md" for item in data["source_documents_read"]))
+
+    def test_invalid_retrieval_package_blocks_preflight(self) -> None:
+        target = self.root / "02_Projects/Demo/design.md"
+        target.write_text("# Design\n", encoding="utf-8")
+        package = self.root / "retrieval_package.json"
+        package.write_text(json.dumps({
+            "authorized_paths": [str(self.root / "01_Knowledge")],
+            "source_sections_read": [],
+            "recall_limitations": [],
+        }), encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli(
+            "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
+            "--intent", "modify", "--authorized-path", str(self.root / "02_Projects"),
+            "--retrieval-package", str(package), "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 3)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "blocked")
+        self.assertFalse(data["retrieval_package_check"]["valid"])
 
 
 if __name__ == "__main__":

@@ -42,6 +42,17 @@ Select one mode:
 - Any write that changes entries, scope, status, current fact source, placement, or recoverability must sync the relevant overview/index/audit file.
 - In Migration mode, structured placement under the standard zones is the primary output. Keeping `raw/` is only a traceability measure and does not replace arranging documents in the new structure.
 
+## Retriever Handoff
+
+Retriever may be used during problem analysis to gather evidence about where a problem belongs. Builder does not ask Retriever to choose a write location, but when a task provides a `retrieval_package`, Builder can use it as write-side evidence. Builder only needs to know:
+
+- whether the package exists and was generated for the current task
+- which `authorized_paths` it covers
+- which `source_sections_read` were read from original Markdown
+- which `recall_limitations` remain
+
+Builder must not depend on Retriever internals, rerun Retriever's query planning, or treat candidate summaries as facts. Candidate decisions, constraints, fixes, supersessions, and placement signals are evidence hints until the cited Markdown sections are read under the target vault policy.
+
 ## Governance Workflow
 
 Treat the target vault's `AGENTS.md` as policy authority. Keep this skill's workflow, `rules/`, and `scripts/` version-bound; do not create a second repo-level implementation unless an independent CI, CLI, agent, or skill consumer exists.
@@ -49,13 +60,15 @@ Treat the target vault's `AGENTS.md` as policy authority. Keep this skill's work
 Before any knowledge-base write:
 
 1. Read authorized entries and the relevant project/module overview.
-2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault>`.
+2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>`.
 3. Run `python3 scripts/kb.py preflight` for each target; pass the policy file plus explicit `--authorized-path` and policy-derived `--forbidden-path` values.
 4. For `blocked`, do not write. For `manual_review`, prepare a proposal or patch draft and obtain explicit review. For `allow`, apply only the declared intent.
 5. Run `hash-check` immediately before writing; rerun preflight when hashes changed.
-6. After writing, run read-only `lint` and perform required overview/index sync.
+6. After writing, run read-only `lint`, remove stale lint reports from the same report directory, and perform required overview/index sync.
 
-Read `references/governance-tools.md` before using lint, trace, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
+Read `references/governance-tools.md` before using lint, trace, registry, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
+
+For project or subproject history repair lookup, use project-scoped Fix Registry rather than a global registry. Read `references/fix-registry.md` before creating, checking, or using a registry.
 
 ## Placement Quick Guide
 

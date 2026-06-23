@@ -89,9 +89,25 @@ def repository_revision(root: Path) -> str:
         return "unknown"
 
 
-def vault_fingerprint(root: Path) -> str:
+def normalize_authorized_paths(root: Path, values: list[str] | None) -> list[Path]:
+    if not values:
+        return [root]
+    return [Path(value).resolve() for value in values]
+
+
+def under_any(path: Path, roots: list[Path]) -> bool:
+    resolved = path.resolve(strict=False)
+    return any(resolved == root or root in resolved.parents for root in roots)
+
+
+def resolve_under_root(root: Path, value: str) -> Path:
+    path = Path(value)
+    return path.resolve(strict=False) if path.is_absolute() else (root / path).resolve(strict=False)
+
+
+def vault_fingerprint(root: Path, authorized: list[Path] | None = None) -> str:
     digest = hashlib.sha256()
-    for path in sorted(markdown_files(root)):
+    for path in sorted(markdown_files(root, authorized)):
         digest.update(path.relative_to(root).as_posix().encode())
         digest.update(path.read_bytes())
     return "sha256:" + digest.hexdigest()
@@ -168,10 +184,13 @@ def ensure_list(value: Any) -> list[str]:
     return [str(value)]
 
 
-def markdown_files(root: Path) -> Iterable[Path]:
+def markdown_files(root: Path, authorized: list[Path] | None = None) -> Iterable[Path]:
+    authorized_roots = [root] if authorized is None else authorized
     for path in root.rglob("*.md"):
         rel_parts = path.relative_to(root).parts
         if any(part in EXCLUDED_DIRS for part in rel_parts):
+            continue
+        if not under_any(path, authorized_roots):
             continue
         yield path
 
@@ -303,14 +322,16 @@ def extract_document(root: Path, path: Path) -> dict[str, Any]:
     }
 
 
-def build_metadata(root: Path) -> dict[str, Any]:
-    docs = [extract_document(root, path) for path in sorted(markdown_files(root))]
+def build_metadata(root: Path, authorized: list[Path] | None = None) -> dict[str, Any]:
+    docs = [extract_document(root, path) for path in sorted(markdown_files(root, authorized))]
+    authorized_roots = [root] if authorized is None else authorized
     return {
         "generated_at": utc_now(),
         "tool_version": TOOL_VERSION,
         "ruleset_hash": ruleset_hash(),
         "repository_revision": repository_revision(root),
         "root": str(root),
+        "authorized_paths": [str(path) for path in authorized_roots],
         "documents": docs,
     }
 
@@ -320,13 +341,24 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def prune_sibling_reports(output: Path, kind: str) -> list[str]:
+    removed = []
+    for path in output.parent.glob(f"{kind}-*.json"):
+        if path == output:
+            continue
+        path.unlink()
+        removed.append(str(path))
+    return removed
+
+
 def default_cache(root: Path, kind: str) -> Path:
     return root / ".kb_cache" / kind / "index.json"
 
 
 def cmd_metadata(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
-    data = build_metadata(root)
+    authorized = normalize_authorized_paths(root, args.authorized_path)
+    data = build_metadata(root, authorized)
     output = Path(args.output).resolve() if args.output else default_cache(root, "metadata")
     write_json(output, data)
     print(json.dumps({"output": str(output), "documents": len(data["documents"])}, ensure_ascii=False))
@@ -465,16 +497,19 @@ def timestamped_report(root: Path, kind: str) -> Path:
 
 def cmd_lint(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
-    metadata = build_metadata(root)
+    authorized = normalize_authorized_paths(root, args.authorized_path)
+    metadata = build_metadata(root, authorized)
     report = lint_report(root, metadata)
+    default_output = args.output is None
     output = Path(args.output).resolve() if args.output else timestamped_report(root, "lint")
     write_json(output, report)
-    print(json.dumps({"output": str(output), "summary": report["summary"]}, ensure_ascii=False))
+    pruned = prune_sibling_reports(output, "lint") if default_output else []
+    print(json.dumps({"output": str(output), "summary": report["summary"], "pruned_reports": pruned}, ensure_ascii=False))
     return 1 if report["summary"].get("error", 0) else 0
 
 
-def build_trace_index(root: Path) -> dict[str, Any]:
-    metadata = build_metadata(root)
+def build_trace_index(root: Path, authorized: list[Path] | None = None) -> dict[str, Any]:
+    metadata = build_metadata(root, authorized)
     records = []
     for doc in metadata["documents"]:
         records.append({
@@ -509,7 +544,8 @@ def build_trace_index(root: Path) -> dict[str, Any]:
         "skill_content_hash": skill_content_hash(),
         "ruleset_hash": ruleset_hash(),
         "repository_revision": repository_revision(root),
-        "vault_fingerprint": vault_fingerprint(root),
+        "vault_fingerprint": vault_fingerprint(root, authorized),
+        "authorized_paths": metadata["authorized_paths"],
         "records": records,
         "supersession_cycles": find_cycles(graph),
     }
@@ -517,11 +553,230 @@ def build_trace_index(root: Path) -> dict[str, Any]:
 
 def cmd_trace_index(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
-    index = build_trace_index(root)
+    authorized = [Path(value).resolve() for value in args.authorized_path]
+    index = build_trace_index(root, authorized)
     output = Path(args.output).resolve() if args.output else default_cache(root, "trace-index")
     write_json(output, index)
     print(json.dumps({"output": str(output), "records": len(index["records"])}, ensure_ascii=False))
     return 0
+
+
+def registry_scope_output(root: Path, scope: str) -> Path:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "__", scope.strip("/"))
+    return root / ".kb_cache" / "fix-registry" / f"{slug or 'root'}.json"
+
+
+def first_body_paragraph(text: str) -> str:
+    body = re.sub(r"(?s)^---\n.*?\n---\n", "", text).strip()
+    lines = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            if lines:
+                break
+            continue
+        lines.append(stripped)
+        if len(" ".join(lines)) >= 240:
+            break
+    return " ".join(lines)[:300]
+
+
+def extract_registry_terms(text: str) -> dict[str, list[str]]:
+    code_spans = re.findall(r"`([^`\n]{2,120})`", text)
+    paths = [item.rstrip(".,;:，。；：)") for item in re.findall(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+", text)]
+    symbols = re.findall(r"\b[A-Za-z_][A-Za-z0-9_:.]{2,}\b", text)
+    symptoms = []
+    constraints = []
+    validation = []
+    for line in text.splitlines():
+        if re.search(r"症状|问题|失败|异常|coredump|crash|error|bug|回归", line, re.I):
+            symptoms.append(line.strip()[:200])
+        if re.search(r"约束|必须|不得|保持|禁止|兼容|constraint", line, re.I):
+            constraints.append(line.strip()[:200])
+        if re.search(r"验证|测试|复核|通过|失败|validation|test|pytest|unittest|lint", line, re.I):
+            validation.append(line.strip()[:200])
+    return {
+        "anchors": sorted({item for item in code_spans if len(item) <= 120})[:40],
+        "paths": sorted({item for item in paths if "/" in item})[:40],
+        "symbols": sorted({item for item in symbols if not item.isdigit()})[:80],
+        "symptoms": symptoms[:20],
+        "constraints": constraints[:20],
+        "validation": validation[:20],
+    }
+
+
+def source_fingerprint(path: Path, root: Path, section: dict[str, Any] | None = None) -> str:
+    stat = path.stat()
+    parts = [path.relative_to(root).as_posix(), f"mtime_ns={stat.st_mtime_ns}", f"size={stat.st_size}"]
+    if section:
+        parts.append(f"section={section['title']}:{section['line']}-{section['end_line']}")
+    return "|".join(parts)
+
+
+def registry_entry_fingerprint(entry: dict[str, Any]) -> str:
+    stable = {
+        key: entry.get(key)
+        for key in (
+            "source_fix_doc",
+            "source_section",
+            "summary",
+            "affected_paths",
+            "symbols",
+            "symptoms",
+            "constraints",
+            "validation",
+            "status",
+            "supersedes",
+            "superseded_by",
+        )
+    }
+    return sha256_bytes(json.dumps(stable, ensure_ascii=False, sort_keys=True).encode())
+
+
+def build_fix_registry(root: Path, scope: str, authorized: list[Path] | None = None) -> dict[str, Any]:
+    scope_path = (root / scope).resolve(strict=False)
+    if root not in scope_path.parents and scope_path != root:
+        raise GovernanceError(f"scope must be inside root: {scope}")
+    authorized_roots = [root] if authorized is None else authorized
+    if not under_any(scope_path, authorized_roots):
+        raise GovernanceError(f"scope is outside authorized paths: {scope}")
+    metadata = build_metadata(root, authorized_roots)
+    entries = []
+    for doc in metadata["documents"]:
+        doc_path = (root / doc["path"]).resolve(strict=False)
+        if doc["record_type"] != "fix" or not (doc_path == scope_path or scope_path in doc_path.parents):
+            continue
+        raw = doc_path.read_text(encoding="utf-8", errors="replace")
+        terms = extract_registry_terms(raw)
+        first_section = doc["headings"][0] if doc["headings"] else None
+        entry = {
+            "source_fix_doc": doc["path"],
+            "source_section": first_section["title"] if first_section else "document-start",
+            "source_fingerprint": source_fingerprint(doc_path, root, first_section),
+            "title": doc["title"],
+            "project": doc["project"],
+            "module": doc["module"],
+            "status": doc["effective"].get("status"),
+            "authority_status": doc["authority_status"],
+            "summary": doc["frontmatter"].get("summary") or first_body_paragraph(raw),
+            "evidence_refs": doc["effective"].get("evidence_refs", []),
+            "supersedes": doc["effective"].get("supersedes", []),
+            "superseded_by": doc["effective"].get("superseded_by", []),
+            "headings": [{"title": item["title"], "line": item["line"]} for item in doc["headings"]],
+            "anchors": terms["anchors"],
+            "affected_paths": terms["paths"],
+            "symbols": terms["symbols"],
+            "symptoms": terms["symptoms"],
+            "constraints": terms["constraints"],
+            "validation": terms["validation"],
+        }
+        entry["registry_entry_fingerprint"] = registry_entry_fingerprint(entry)
+        entries.append(entry)
+    return {
+        "generated_at": utc_now(),
+        "tool_version": TOOL_VERSION,
+        "skill_content_hash": skill_content_hash(),
+        "ruleset_hash": ruleset_hash(),
+        "repository_revision": repository_revision(root),
+        "root": str(root),
+        "scope": scope,
+        "entries": entries,
+        "entry_count": len(entries),
+        "authority": "derived_from_source_fix_docs",
+    }
+
+
+def cmd_fix_registry(args: argparse.Namespace) -> int:
+    root = Path(args.root).resolve()
+    authorized = normalize_authorized_paths(root, args.authorized_path)
+    registry = build_fix_registry(root, args.scope, authorized)
+    output = Path(args.output).resolve() if args.output else registry_scope_output(root, args.scope)
+    write_json(output, registry)
+    print(json.dumps({"output": str(output), "entries": registry["entry_count"], "scope": args.scope}, ensure_ascii=False))
+    return 0
+
+
+def load_json_file(path: str) -> dict[str, Any]:
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GovernanceError(f"cannot read JSON file {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise GovernanceError(f"JSON file must contain an object: {path}")
+    return value
+
+
+def check_retrieval_package(root: Path, package: dict[str, Any], authorized: list[Path]) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+
+    def add(severity: str, code: str, message: str, **extra: Any) -> None:
+        issues.append({"severity": severity, "code": code, "message": message, **extra})
+
+    package_paths = package.get("authorized_paths")
+    if not isinstance(package_paths, list) or not package_paths:
+        add("error", "KBR-PKG-001", "retrieval_package.authorized_paths must be a non-empty list")
+        package_paths = []
+    for value in package_paths:
+        path = resolve_under_root(root, str(value))
+        if not under_any(path, authorized):
+            add("error", "KBR-PKG-002", "package authorized path is outside Builder authorized paths", path=str(value))
+
+    sections = package.get("source_sections_read")
+    if not isinstance(sections, list):
+        add("error", "KBR-PKG-003", "retrieval_package.source_sections_read must be a list")
+        sections = []
+    source_paths = []
+    for section in sections:
+        if not isinstance(section, dict):
+            add("error", "KBR-PKG-004", "source section entry must be an object")
+            continue
+        source_path = section.get("path") or section.get("source_path")
+        if not source_path:
+            add("error", "KBR-PKG-005", "source section must include path or source_path")
+            continue
+        candidate = (root / str(source_path)).resolve(strict=False)
+        if not under_any(candidate, authorized):
+            add("error", "KBR-PKG-006", "source section path is outside authorized paths", path=str(source_path))
+            continue
+        if not candidate.is_file():
+            add("error", "KBR-PKG-007", "source section path is not readable Markdown", path=str(source_path))
+            continue
+        source_paths.append(str(source_path))
+
+    limitations = package.get("recall_limitations")
+    if limitations is None:
+        add("warning", "KBR-PKG-008", "recall_limitations is missing")
+    elif not isinstance(limitations, list):
+        add("error", "KBR-PKG-009", "recall_limitations must be a list")
+
+    candidate_fields = ("candidate_decisions", "candidate_constraints", "candidate_fixes", "candidate_supersessions")
+    for field in candidate_fields:
+        value = package.get(field, [])
+        if not isinstance(value, list):
+            add("error", "KBR-PKG-010", f"{field} must be a list")
+
+    return {
+        "valid": not any(issue["severity"] == "error" for issue in issues),
+        "checked_at": utc_now(),
+        "authorized_paths": [str(path) for path in authorized],
+        "package_authorized_paths": package_paths,
+        "source_sections_read": source_paths,
+        "recall_limitations": limitations if isinstance(limitations, list) else [],
+        "issues": issues,
+    }
+
+
+def cmd_retrieval_package_check(args: argparse.Namespace) -> int:
+    root = Path(args.root).resolve()
+    authorized = normalize_authorized_paths(root, args.authorized_path)
+    package = load_json_file(args.package)
+    result = check_retrieval_package(root, package, authorized)
+    if args.output:
+        write_json(Path(args.output).resolve(), result)
+        print(json.dumps({"output": str(Path(args.output).resolve()), "valid": result["valid"], "issues": len(result["issues"])}, ensure_ascii=False))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["valid"] else 2
 
 
 def query_terms(*values: str) -> list[str]:
@@ -534,20 +789,28 @@ def query_terms(*values: str) -> list[str]:
     return terms
 
 
-def match_trace_records(index: dict[str, Any], target: str, query: str, limit: int) -> tuple[list[dict[str, Any]], list[str]]:
-    terms = query_terms(target, Path(target).stem, query)
+def match_trace_records(
+    index: dict[str, Any],
+    target: str,
+    query: str,
+    limit: int,
+    required_paths: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    terms = query_terms(query)
     target_parts = set(Path(target).parts)
+    required = set(required_paths or [])
     matches = []
     for record in index["records"]:
         if record["path"] == target:
             continue
         matched = [term for term in terms if term in record["search_text"] or term in record["path"].lower()]
         shared = len(target_parts.intersection(Path(record["path"]).parts))
-        if not matched and shared < 2:
+        is_required = record["path"] in required
+        if not is_required and not matched and shared < 2:
             continue
         weight = {"strong": 20, "medium": 10, "weak": 1}.get(record["signal_strength"], 5)
-        score = weight + len(matched) * 3 + shared
-        matches.append({**record, "matched_terms": matched, "score": score})
+        score = (1000 if is_required else 0) + weight + len(matched) * 3 + shared
+        matches.append({**record, "matched_terms": matched, "score": score, "source": "retrieval_package" if is_required else "trace_index"})
     matches.sort(key=lambda item: (-item["score"], item["path"]))
     return matches[:limit], terms
 
@@ -637,19 +900,24 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
     return decision, triggered, validation_required
 
 
-def load_or_build_trace(root: Path, override: str | None = None) -> dict[str, Any]:
+def load_or_build_trace(root: Path, override: str | None = None, authorized: list[Path] | None = None) -> dict[str, Any]:
     path = Path(override).resolve() if override else default_cache(root, "trace-index")
+    authorized_roots = [root] if authorized is None else authorized
     if path.is_file():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            current_fingerprint = vault_fingerprint(root)
-            if data.get("ruleset_hash") == ruleset_hash() and data.get("vault_fingerprint") == current_fingerprint:
+            current_fingerprint = vault_fingerprint(root, authorized_roots)
+            if (
+                data.get("ruleset_hash") == ruleset_hash()
+                and data.get("vault_fingerprint") == current_fingerprint
+                and data.get("authorized_paths") == [str(path) for path in authorized_roots]
+            ):
                 return data
         except (OSError, json.JSONDecodeError):
             pass
         if override:
             raise GovernanceError(f"explicit trace index is stale or invalid: {path}")
-    data = build_trace_index(root)
+    data = build_trace_index(root, authorized_roots)
     write_json(path, data)
     return data
 
@@ -691,12 +959,22 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         args.intent == "create" and (not create_parent.is_dir() or not os.access(create_parent, os.R_OK))
     )
     metadata = target_metadata(root, target) if not target_forbidden else {"declared": {}, "effective": {}, "value_origin": {}, "document_hash": None}
-    index = load_or_build_trace(root, args.trace_index)
-    matches, terms = match_trace_records(index, target_rel, args.query or args.change_summary or "", args.limit)
+    package_check = None
+    package_source_paths: list[str] = []
+    if args.retrieval_package:
+        package = load_json_file(args.retrieval_package)
+        package_check = check_retrieval_package(root, package, authorized)
+        package_source_paths = package_check["source_sections_read"]
+    index = load_or_build_trace(root, args.trace_index, authorized)
+    matches, terms = match_trace_records(index, target_rel, args.query, args.limit, package_source_paths)
     source_reads = []
     read_errors = []
     for record in matches:
-        should_read = record["signal_strength"] == "strong" or record["effective"].get("protection_level") in {"guarded", "critical"}
+        should_read = (
+            record["path"] in package_source_paths
+            or record["signal_strength"] == "strong"
+            or record["effective"].get("protection_level") in {"guarded", "critical"}
+        )
         if not should_read:
             continue
         try:
@@ -720,6 +998,9 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         "supersession_conflicts": conflicts,
     }
     decision, triggered, validation_required = evaluate_gate(context)
+    if package_check and not package_check["valid"]:
+        decision = "blocked"
+        triggered.append({"rule_id": "KB-GATE-012", "condition": "invalid_retrieval_package", "decision": "blocked"})
     if read_errors:
         decision = "blocked"
         triggered.append({"rule_id": "KB-GATE-008", "condition": "source_read_error", "decision": "blocked"})
@@ -735,6 +1016,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             "ruleset_hash": ruleset_hash(),
             "repository_revision": repository_revision(root),
             "vault_fingerprint": index.get("vault_fingerprint"),
+            "authorized_paths": [str(path) for path in authorized],
             "policy_file": str(policy_file),
             "policy_hash": sha256_file(policy_file) if not policy_unreadable else None,
             "target_files": [target_rel],
@@ -750,6 +1032,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         },
         "matched_trace_records": [{k: v for k, v in item.items() if k != "search_text"} for item in matches],
         "source_documents_read": source_reads,
+        "retrieval_package_check": package_check,
         "source_read_errors": read_errors,
         "derived_constraints": [
             {"path": read["path"], "sections": [section["heading"] for section in read["sections_read"]]}
@@ -783,8 +1066,10 @@ def cmd_hash_check(args: argparse.Namespace) -> int:
         mismatches.append({"path": "<ruleset>", "expected": snapshot.get("ruleset_hash"), "actual": ruleset_hash()})
     if snapshot.get("skill_content_hash") != skill_content_hash():
         mismatches.append({"path": "<skill>", "expected": snapshot.get("skill_content_hash"), "actual": skill_content_hash()})
-    if snapshot.get("vault_fingerprint") != vault_fingerprint(root):
-        mismatches.append({"path": "<vault>", "expected": snapshot.get("vault_fingerprint"), "actual": vault_fingerprint(root)})
+    authorized = [Path(value).resolve() for value in snapshot.get("authorized_paths", [str(root)])]
+    current_vault_fingerprint = vault_fingerprint(root, authorized)
+    if snapshot.get("vault_fingerprint") != current_vault_fingerprint:
+        mismatches.append({"path": "<vault>", "expected": snapshot.get("vault_fingerprint"), "actual": current_vault_fingerprint})
     policy_path = Path(snapshot["policy_file"]) if snapshot.get("policy_file") else None
     policy_hash = sha256_file(policy_path) if policy_path and policy_path.is_file() else None
     if snapshot.get("policy_hash") != policy_hash:
@@ -810,8 +1095,21 @@ def build_parser() -> argparse.ArgumentParser:
     for name, handler in (("metadata", cmd_metadata), ("lint", cmd_lint), ("trace-index", cmd_trace_index)):
         command = sub.add_parser(name)
         command.add_argument("--root", required=True)
+        command.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
         command.add_argument("--output")
         command.set_defaults(handler=handler)
+    registry = sub.add_parser("fix-registry")
+    registry.add_argument("--root", required=True)
+    registry.add_argument("--scope", required=True, help="project or subproject relative path, for example 02_Projects/DMS/04_Tracking")
+    registry.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
+    registry.add_argument("--output")
+    registry.set_defaults(handler=cmd_fix_registry)
+    package_check = sub.add_parser("retrieval-package-check")
+    package_check.add_argument("--root", required=True)
+    package_check.add_argument("--package", required=True)
+    package_check.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
+    package_check.add_argument("--output")
+    package_check.set_defaults(handler=cmd_retrieval_package_check)
     preflight = sub.add_parser("preflight")
     preflight.add_argument("--root", required=True)
     preflight.add_argument("--target", required=True)
@@ -820,6 +1118,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--forbidden-path", action="append", default=[], help="repeat for policy-forbidden roots resolved by the workflow")
     preflight.add_argument("--policy-file", help="policy authority; defaults to <root>/AGENTS.md")
     preflight.add_argument("--query", default="")
+    preflight.add_argument("--retrieval-package", help="path to Retriever retrieval_package JSON to validate and use as source-section hints")
     preflight.add_argument("--change-summary", default="")
     preflight.add_argument("--supersedes", action="append", default=[])
     preflight.add_argument("--supersession-reason", default="")

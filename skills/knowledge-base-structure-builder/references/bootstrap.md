@@ -36,19 +36,6 @@ After copying templates:
 - remove or explicitly track leftover `TBD` placeholders
 - verify `README.md` links match the actual overview filenames
 
-## Create or Patch AGENTS.md
-
-If the repository has no knowledge-base rules, create or patch `AGENTS.md` with:
-
-- authorized read/write boundaries
-- zone semantics
-- external information placement
-- promotion rules
-- entry-first reading
-- write-after-sync rules
-
-Keep runtime/plugin governance out of `AGENTS.md` unless the repository explicitly owns it.
-
 ## Initial Status
 
 Use conservative statuses:
