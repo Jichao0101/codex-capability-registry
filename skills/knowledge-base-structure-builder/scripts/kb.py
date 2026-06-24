@@ -47,6 +47,8 @@ FULL_PREFLIGHT_CHANGE_CLASSES = {
     "evidence_level_change",
     "guarded_or_critical_target",
 }
+LIGHTWEIGHT_CONFIRMATION_RECORD_TYPES = {"current"}
+LIGHTWEIGHT_CONFIRMATION_PROTECTION_LEVELS = {"guarded", "critical"}
 
 
 class GovernanceError(RuntimeError):
@@ -969,6 +971,7 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
         ),
         "strong_record_unread": any(r["signal_strength"] == "strong" and r["path"] not in context["read_paths"] for r in context["matches"]),
         "protected_source_unread": any(r["effective"].get("protection_level") in {"guarded", "critical"} and r["path"] not in context["read_paths"] for r in context["matches"]),
+        "high_risk_retrieval_insufficient": context["high_risk_change"] and not context["read_paths"],
         "supersession_conflict": bool(context["supersession_conflicts"]),
         "only_weak_records": bool(context["matches"]) and all(r["signal_strength"] == "weak" for r in context["matches"]),
         "default_allow": True,
@@ -1074,6 +1077,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         "target_forbidden": target_forbidden,
         "target_unreadable": target_unreadable,
         "effective": metadata.get("effective", {}),
+        "high_risk_change": args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES or args.intent in {"delete", "supersede"} or args.replaces_conclusion,
         "intent": args.intent,
         "supersedes": args.supersedes,
         "supersession_reason": args.supersession_reason,
@@ -1087,7 +1091,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     decision, triggered, validation_required = evaluate_gate(context)
     if package_check and not package_check["valid"]:
         decision = "blocked"
-        triggered.append({"rule_id": "KB-GATE-012", "condition": "invalid_retrieval_package", "decision": "blocked"})
+        triggered.append({"rule_id": "KB-GATE-013", "condition": "invalid_retrieval_package", "decision": "blocked"})
     if read_errors:
         decision = "blocked"
         triggered.append({"rule_id": "KB-GATE-008", "condition": "source_read_error", "decision": "blocked"})
@@ -1134,6 +1138,12 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             "supersession_requirements": [] if not any(t["rule_id"] == "KB-GATE-007" for t in triggered) else ["supersedes", "reciprocal superseded_by update", "reason", "evidence_refs"],
         },
         "weak_record_hits": [item["path"] for item in matches if item["signal_strength"] == "weak"],
+        "retrieval_coverage": {
+            "matches_found": bool(matches),
+            "source_documents_read": bool(source_reads),
+            "safety_proven_by_no_hits": False,
+            "high_risk_change": context["high_risk_change"],
+        },
         "triggered_rules": triggered,
         "validation_plan_required": validation_required,
         "gate_decision": decision,
@@ -1208,16 +1218,16 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
         full_preflight_reasons.append(f"change_class:{args.change_class}")
     if args.intent not in {"append", "create"}:
         full_preflight_reasons.append(f"intent:{args.intent}")
-    if record_type == "current":
-        full_preflight_reasons.append("target_record_type:current")
-    if target_rel.startswith("01_Knowledge/"):
-        full_preflight_reasons.append("formal_knowledge_target")
-    if effective.get("protection_level") in {"guarded", "critical"}:
-        full_preflight_reasons.append(f"protection_level:{effective.get('protection_level')}")
     if args.replaces_conclusion:
         full_preflight_reasons.append("replaces_conclusion")
     if args.supersedes:
         full_preflight_reasons.append("supersedes")
+    confirmation_reasons = []
+    if not full_preflight_reasons and args.intent in {"append", "create"}:
+        if record_type in LIGHTWEIGHT_CONFIRMATION_RECORD_TYPES:
+            confirmation_reasons.append(f"target_record_type:{record_type}")
+        if effective.get("protection_level") in LIGHTWEIGHT_CONFIRMATION_PROTECTION_LEVELS:
+            confirmation_reasons.append(f"protection_level:{effective.get('protection_level')}")
 
     target_hashes = []
     if target.is_file():
@@ -1230,6 +1240,8 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
         decision = "blocked"
     elif full_preflight_reasons:
         decision = "requires_full_preflight"
+    elif confirmation_reasons and not args.user_confirmed:
+        decision = "requires_user_confirmation"
 
     report = {
         "minimal_apply_snapshot": {
@@ -1262,6 +1274,10 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
             "source_documents_read": False,
             "full_preflight_required": bool(full_preflight_reasons),
             "full_preflight_reasons": full_preflight_reasons,
+            "user_confirmation_required": bool(confirmation_reasons),
+            "user_confirmed": args.user_confirmed,
+            "batch_confirmation_id": args.batch_confirmation_id,
+            "confirmation_reasons": confirmation_reasons,
         },
         "gate_decision": decision,
     }
@@ -1272,6 +1288,8 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
     if decision == "allow":
         return 0
     if decision == "requires_full_preflight":
+        return 2
+    if decision == "requires_user_confirmation":
         return 2
     return 3
 
@@ -1306,6 +1324,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--policy-file", help="policy authority; defaults to <root>/AGENTS.md")
     preflight.add_argument("--query", default="")
     preflight.add_argument("--retrieval-package", help="path to Retriever retrieval_package JSON to validate and use as source-section hints")
+    preflight.add_argument("--change-class", default="unspecified")
     preflight.add_argument("--change-summary", default="")
     preflight.add_argument("--supersedes", action="append", default=[])
     preflight.add_argument("--supersession-reason", default="")
@@ -1327,6 +1346,8 @@ def build_parser() -> argparse.ArgumentParser:
     minimal.add_argument("--change-summary", default="")
     minimal.add_argument("--supersedes", action="append", default=[])
     minimal.add_argument("--replaces-conclusion", action="store_true")
+    minimal.add_argument("--user-confirmed", action="store_true", help="user approved this low-risk guarded/current apply, possibly at batch level")
+    minimal.add_argument("--batch-confirmation-id", default="", help="optional id or note for the user-confirmed batch")
     minimal.add_argument("--output")
     minimal.set_defaults(handler=cmd_minimal_apply_check)
     check = sub.add_parser("hash-check")

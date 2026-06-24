@@ -11,8 +11,9 @@
     {"id": "KB-GATE-007", "condition": "supersession_missing", "decision": "blocked"},
     {"id": "KB-GATE-008", "condition": "strong_record_unread", "decision": "blocked"},
     {"id": "KB-GATE-009", "condition": "protected_source_unread", "decision": "blocked"},
-    {"id": "KB-GATE-010", "condition": "supersession_conflict", "decision": "blocked"},
-    {"id": "KB-GATE-011", "condition": "only_weak_records", "decision": null, "report_required": true},
-    {"id": "KB-GATE-012", "condition": "default_allow", "decision": "allow"}
+    {"id": "KB-GATE-010", "condition": "high_risk_retrieval_insufficient", "decision": "manual_review", "report_required": true},
+    {"id": "KB-GATE-011", "condition": "supersession_conflict", "decision": "blocked"},
+    {"id": "KB-GATE-012", "condition": "only_weak_records", "decision": null, "report_required": true},
+    {"id": "KB-GATE-013", "condition": "default_allow", "decision": "allow"}
   ]
 }

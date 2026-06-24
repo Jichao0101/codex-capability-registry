@@ -228,7 +228,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(data["input"]["target_record_type"], "maintenance")
         self.assertTrue(data["minimal_apply_snapshot"]["target_hashes_before_apply"])
 
-    def test_minimal_apply_check_requires_full_preflight_for_current_target(self) -> None:
+    def test_minimal_apply_check_requires_user_confirmation_for_current_lightweight_append(self) -> None:
         current = self.root / "02_Projects/Demo/overview_current.md"
         current.write_text("# Current\n", encoding="utf-8")
         report = self.root / "minimal.json"
@@ -241,8 +241,44 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
-        self.assertEqual(data["gate_decision"], "requires_full_preflight")
-        self.assertIn("target_record_type:current", data["checks"]["full_preflight_reasons"])
+        self.assertEqual(data["gate_decision"], "requires_user_confirmation")
+        self.assertFalse(data["checks"]["full_preflight_required"])
+        self.assertIn("target_record_type:current", data["checks"]["confirmation_reasons"])
+
+    def test_minimal_apply_check_allows_confirmed_current_lightweight_append(self) -> None:
+        current = self.root / "02_Projects/Demo/overview_current.md"
+        current.write_text("# Current\n", encoding="utf-8")
+        report = self.root / "minimal.json"
+        result = self.run_cli(
+            "minimal-apply-check", "--root", str(self.root),
+            "--target", "02_Projects/Demo/overview_current.md",
+            "--intent", "append", "--change-class", "retrieval_summary_append",
+            "--authorized-path", str(self.root / "02_Projects/Demo"),
+            "--user-confirmed", "--batch-confirmation-id", "batch-20260624",
+            "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "allow")
+        self.assertTrue(data["checks"]["user_confirmation_required"])
+        self.assertEqual(data["checks"]["batch_confirmation_id"], "batch-20260624")
+
+    def test_preflight_high_risk_without_retrieval_evidence_requires_manual_review(self) -> None:
+        target = self.root / "02_Projects/Demo/design.md"
+        target.write_text("# Design\n", encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli(
+            "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
+            "--intent", "modify", "--change-class", "conclusion_replacement",
+            "--authorized-path", str(self.root / "02_Projects/Demo"),
+            "--query", "term-that-does-not-match", "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "manual_review")
+        self.assertFalse(data["retrieval_coverage"]["matches_found"])
+        self.assertFalse(data["retrieval_coverage"]["safety_proven_by_no_hits"])
+        self.assertTrue(any(item["condition"] == "high_risk_retrieval_insufficient" for item in data["triggered_rules"]))
 
     def test_minimal_apply_check_requires_full_preflight_for_conclusion_replacement(self) -> None:
         note = self.root / "02_Projects/Demo/note.md"

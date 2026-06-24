@@ -57,17 +57,19 @@ Builder must not depend on Retriever internals, rerun Retriever's query planning
 
 Treat the target vault's `AGENTS.md` as policy authority. Keep this skill's workflow, `rules/`, and `scripts/` version-bound; do not create a second repo-level implementation unless an independent CI, CLI, agent, or skill consumer exists.
 
-Use gate granularity by change class:
+Use gate granularity by change class, not by whether Retriever was run:
 
 - Proposal-only report generation, including `retrieval-summary-proposals`, does not require trace-index, preflight, or hash-check because it does not edit Markdown.
-- Low-risk non-fact apply operations, such as appending a `Retrieval Summary` to an original fix/decision/validation/incident record, use `minimal-apply-check` immediately before editing Markdown.
-- Full preflight is whitelist-only. Use `trace-index` + `preflight` + `hash-check` for current document group updates, delete/move, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, metadata/status changes, evidence-level changes, and guarded/critical targets.
+- Low-risk non-fact apply operations, such as appending a `Retrieval Summary` to an original fix/decision/validation/incident record, use `minimal-apply-check` immediately before editing Markdown. They do not block merely because no historical retrieval was run.
+- Lightweight append/create changes to current or guarded targets can proceed through `minimal-apply-check` with batch-level user confirmation. The confirmation approves only the declared low-risk addition; it does not approve rewrites, status changes, evidence changes, or supersession.
+- Full preflight is whitelist-only for high-risk change classes: current group structural updates, delete/move, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, metadata/status changes, evidence-level changes, and explicitly critical-target operations.
+- No retrieval hit is never a safety proof. For high-risk change classes, insufficient retrieval/source evidence means `manual_review` or proposal-only output, not silent allow.
 
 For low-risk apply:
 
 1. Read the target and enough local context to ensure the proposed summary is supported by the document itself.
 2. Run `python3 scripts/kb.py minimal-apply-check --root <vault> --target <path> --intent append --change-class retrieval_summary_append --authorized-path <path>`.
-3. Apply only the checked append when the decision is `allow`; if the decision is `requires_full_preflight`, switch to the full workflow.
+3. Apply only the checked append when the decision is `allow`; if the decision is `requires_user_confirmation`, obtain one batch-level confirmation for the exact target set and rerun with `--user-confirmed`; if the decision is `requires_full_preflight`, switch to the full workflow.
 4. Run read-only `lint` after the write and sync entries only when placement, scope, status, current fact source, or recoverability changed.
 
 For full-preflight whitelist changes:
@@ -75,7 +77,7 @@ For full-preflight whitelist changes:
 1. Read authorized entries and the relevant project/module overview.
 2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>`.
 3. Run `python3 scripts/kb.py preflight` for each target; pass the policy file plus explicit `--authorized-path` and policy-derived `--forbidden-path` values.
-4. For `blocked`, do not write. For `manual_review`, prepare a proposal or patch draft and obtain explicit review. For `allow`, apply only the declared intent.
+4. For `blocked`, do not write. For `manual_review`, prepare a proposal or patch draft and obtain explicit review. For `allow`, apply only the declared intent. Do not convert an empty retrieval result into proof that no guarded facts, fixes, constraints, or supersessions exist.
 5. Run `hash-check` immediately before writing; rerun preflight when hashes changed.
 6. After writing, run read-only `lint`, remove stale lint reports from the same report directory, and perform required overview/index sync.
 
