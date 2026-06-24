@@ -33,9 +33,9 @@ Gate selection is determined by change class and write intent, not by whether Re
 
 Proposal-only commands do not edit Markdown and do not require trace-index, preflight, or hash-check. This includes report generation for retrieval summary proposals.
 
-Low-risk non-fact append/create operations use `minimal-apply-check` immediately before editing Markdown. This check only validates policy readability, explicit authorized scope, target readability/creatability, forbidden paths, target hash snapshot, whether the change class must be escalated to full preflight, and whether current/guarded targets need user confirmation. It does not build trace-index, read strong records, or scan source documents. A low-risk write is not blocked merely because no historical retrieval was run.
+Low-risk non-fact append/create operations use `minimal-apply-check` immediately before editing Markdown. This check only validates policy readability, explicit authorized scope, target readability/creatability, forbidden paths, target hash snapshot, and whether the change class must be escalated to full preflight. It does not build trace-index, read strong records, scan source documents, or require confirmation merely because the target is current/guarded/verified. A low-risk write is not blocked merely because no historical retrieval was run.
 
-Lightweight append/create operations to current or guarded targets may use batch-level user confirmation. If `minimal-apply-check` returns `requires_user_confirmation`, obtain confirmation for the exact target set and declared low-risk change class, then rerun with `--user-confirmed` and optionally `--batch-confirmation-id`.
+Target type is a caution signal, not a gate decision. `current`, `guarded`, `critical`, `verified`, and entry files should be treated carefully by the workflow, but they do not by themselves require `manual_review` or user confirmation.
 
 Full preflight is whitelist-only for high-risk change classes. Use `trace-index` + `preflight` + `hash-check` for:
 
@@ -48,7 +48,6 @@ Full preflight is whitelist-only for high-risk change classes. Use `trace-index`
 - protected rewrites
 - metadata/status changes
 - evidence-level changes
-- explicitly critical-target operations
 
 If `minimal-apply-check` returns `requires_full_preflight`, switch to the full workflow.
 
@@ -56,9 +55,8 @@ If `minimal-apply-check` returns `requires_full_preflight`, switch to the full w
 
 1. Read the target and enough local context to ensure the proposed append is supported by that document.
 2. Run `minimal-apply-check` before editing.
-3. If the decision is `requires_user_confirmation`, obtain batch-level user confirmation for the target set and rerun with `--user-confirmed`.
-4. If the decision is `allow`, apply only the checked append.
-5. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three.
+3. If the decision is `allow`, apply only the checked append.
+4. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three.
 
 ## Full preflight workflow
 
@@ -66,7 +64,7 @@ If `minimal-apply-check` returns `requires_full_preflight`, switch to the full w
 2. Run `trace-index` when the cache is missing or stale. Pass authorized paths so the index is not built by scanning the whole vault first.
 3. Run `preflight` before the first target modification. Pass every authorized path explicitly.
 4. If the decision is `blocked`, do not write. Resolve the listed blocker and rerun.
-5. If the decision is `manual_review`, create a proposal or patch draft and obtain explicit review before applying it.
+5. If the decision is `manual_review`, create a proposal or patch draft and obtain explicit review before applying it. `manual_review` must come from a concrete semantic conflict, insufficient retrieval/source coverage for a high-risk change, high-risk field changes, or replacement/delete/move/promotion/supersession semantics; do not infer it from target type alone.
 6. If the decision is `allow`, apply only the described change intent.
 7. Run `hash-check` immediately before writing; rerun preflight if any hash changed.
 8. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three, then sync required entries.
@@ -97,4 +95,4 @@ Use `retrieval-summary-proposals` to generate report-only patch proposals for fi
 python3 scripts/kb.py retrieval-summary-proposals --root <vault> --authorized-path <vault>/02_Projects/DMS/04_Tracking
 ```
 
-The command writes a derived report under `<vault>/reports/kb/retrieval-summary-proposals/` unless `--output` is provided. It never edits Markdown directly and does not require trace-index, preflight, or hash-check. Apply the approved patch only after `minimal-apply-check` returns `allow`; if it returns `requires_user_confirmation`, obtain batch-level confirmation and rerun; if the change class requires full preflight, follow the full workflow instead.
+The command writes a derived report under `<vault>/reports/kb/retrieval-summary-proposals/` unless `--output` is provided. It never edits Markdown directly and does not require trace-index, preflight, or hash-check. Apply the approved patch only after `minimal-apply-check` returns `allow`; if the change class requires full preflight, follow the full workflow instead.

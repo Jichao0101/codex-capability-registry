@@ -61,15 +61,16 @@ Use gate granularity by change class, not by whether Retriever was run:
 
 - Proposal-only report generation, including `retrieval-summary-proposals`, does not require trace-index, preflight, or hash-check because it does not edit Markdown.
 - Low-risk non-fact apply operations, such as appending a `Retrieval Summary` to an original fix/decision/validation/incident record, use `minimal-apply-check` immediately before editing Markdown. They do not block merely because no historical retrieval was run.
-- Lightweight append/create changes to current or guarded targets can proceed through `minimal-apply-check` with batch-level user confirmation. The confirmation approves only the declared low-risk addition; it does not approve rewrites, status changes, evidence changes, or supersession.
-- Full preflight is whitelist-only for high-risk change classes: current group structural updates, delete/move, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, metadata/status changes, evidence-level changes, and explicitly critical-target operations.
+- Target type is a caution signal, not a review decision. `current`, `guarded`, `critical`, `verified`, and entry files do not require confirmation by themselves.
+- Full preflight is whitelist-only for high-risk change classes: current group structural updates, delete/move, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, metadata/status changes, and evidence-level changes.
+- Require `manual_review` or block only when preflight finds a concrete semantic conflict, retrieval/source coverage is insufficient for a high-risk change, high-risk fields are being changed, or the operation is replacement, delete, move, promotion, or supersession.
 - No retrieval hit is never a safety proof. For high-risk change classes, insufficient retrieval/source evidence means `manual_review` or proposal-only output, not silent allow.
 
 For low-risk apply:
 
 1. Read the target and enough local context to ensure the proposed summary is supported by the document itself.
 2. Run `python3 scripts/kb.py minimal-apply-check --root <vault> --target <path> --intent append --change-class retrieval_summary_append --authorized-path <path>`.
-3. Apply only the checked append when the decision is `allow`; if the decision is `requires_user_confirmation`, obtain one batch-level confirmation for the exact target set and rerun with `--user-confirmed`; if the decision is `requires_full_preflight`, switch to the full workflow.
+3. Apply only the checked append when the decision is `allow`; if the decision is `requires_full_preflight`, switch to the full workflow.
 4. Run read-only `lint` after the write and sync entries only when placement, scope, status, current fact source, or recoverability changed.
 
 For full-preflight whitelist changes:

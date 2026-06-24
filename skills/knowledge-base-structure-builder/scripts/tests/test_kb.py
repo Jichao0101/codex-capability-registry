@@ -90,7 +90,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertTrue(Path(payload["output"]).is_file())
         self.assertIn(str(stale_reports[0]), payload["pruned_reports"])
 
-    def test_preflight_verified_target_requires_review_and_reads_strong_fix(self) -> None:
+    def test_preflight_semantic_fix_conflict_requires_review_and_reads_source(self) -> None:
         target = self.root / "01_Knowledge/item.md"
         target.write_text("---\nstatus: verified\nprotection_level: guarded\nchange_policy: free_update\n---\n# Driver binding\n", encoding="utf-8")
         fix = self.root / "02_Projects/Demo/fixes/driver-binding-fix.md"
@@ -104,9 +104,24 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
         self.assertEqual(data["gate_decision"], "manual_review")
+        self.assertTrue(any(item["condition"] == "semantic_conflict" for item in data["triggered_rules"]))
         self.assertTrue(any(item["path"].endswith("driver-binding-fix.md") for item in data["source_documents_read"]))
         check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_preflight_guarded_verified_target_without_conflict_can_be_allowed(self) -> None:
+        target = self.root / "01_Knowledge/item.md"
+        target.write_text("---\nstatus: verified\nprotection_level: guarded\nchange_policy: free_update\n---\n# Item\n", encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli(
+            "preflight", "--root", str(self.root), "--target", "01_Knowledge/item.md",
+            "--intent", "modify", "--authorized-path", str(self.root),
+            "--query", "term-that-does-not-match", "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "allow")
+        self.assertFalse(any(item["condition"] in {"semantic_conflict", "high_risk_retrieval_insufficient"} for item in data["triggered_rules"]))
 
     def test_preflight_requires_explicit_authorized_path(self) -> None:
         target = self.root / "03_Inbox/note.md"
@@ -228,7 +243,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(data["input"]["target_record_type"], "maintenance")
         self.assertTrue(data["minimal_apply_snapshot"]["target_hashes_before_apply"])
 
-    def test_minimal_apply_check_requires_user_confirmation_for_current_lightweight_append(self) -> None:
+    def test_minimal_apply_check_allows_current_lightweight_append_without_target_type_confirmation(self) -> None:
         current = self.root / "02_Projects/Demo/overview_current.md"
         current.write_text("# Current\n", encoding="utf-8")
         report = self.root / "minimal.json"
@@ -239,13 +254,14 @@ class KnowledgeBaseCliTest(unittest.TestCase):
             "--authorized-path", str(self.root / "02_Projects/Demo"),
             "--output", str(report),
         )
-        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(report.read_text())
-        self.assertEqual(data["gate_decision"], "requires_user_confirmation")
+        self.assertEqual(data["gate_decision"], "allow")
         self.assertFalse(data["checks"]["full_preflight_required"])
-        self.assertIn("target_record_type:current", data["checks"]["confirmation_reasons"])
+        self.assertFalse(data["checks"]["user_confirmation_required"])
+        self.assertEqual(data["checks"]["confirmation_reasons"], [])
 
-    def test_minimal_apply_check_allows_confirmed_current_lightweight_append(self) -> None:
+    def test_minimal_apply_check_keeps_confirmation_fields_when_user_supplies_batch_id(self) -> None:
         current = self.root / "02_Projects/Demo/overview_current.md"
         current.write_text("# Current\n", encoding="utf-8")
         report = self.root / "minimal.json"
@@ -260,7 +276,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(report.read_text())
         self.assertEqual(data["gate_decision"], "allow")
-        self.assertTrue(data["checks"]["user_confirmation_required"])
+        self.assertFalse(data["checks"]["user_confirmation_required"])
         self.assertEqual(data["checks"]["batch_confirmation_id"], "batch-20260624")
 
     def test_preflight_high_risk_without_retrieval_evidence_requires_manual_review(self) -> None:
@@ -348,7 +364,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertIn("## Retrieval Summary", proposal["proposed_section"])
         self.assertEqual(fix.read_text(encoding="utf-8"), original)
 
-    def test_retrieval_package_can_drive_preflight_source_read(self) -> None:
+    def test_retrieval_package_can_drive_preflight_source_read_and_conflict_review(self) -> None:
         target = self.root / "02_Projects/Demo/design.md"
         target.write_text("# Design\n", encoding="utf-8")
         fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
@@ -366,10 +382,12 @@ class KnowledgeBaseCliTest(unittest.TestCase):
             "--intent", "modify", "--authorized-path", str(self.root / "02_Projects"),
             "--retrieval-package", str(package), "--output", str(report),
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "manual_review")
         self.assertTrue(data["retrieval_package_check"]["valid"])
         self.assertTrue(any(item["path"] == "02_Projects/Demo/fixes/binding-fix.md" for item in data["source_documents_read"]))
+        self.assertTrue(any(item["condition"] == "semantic_conflict" for item in data["triggered_rules"]))
 
     def test_invalid_retrieval_package_blocks_preflight(self) -> None:
         target = self.root / "02_Projects/Demo/design.md"

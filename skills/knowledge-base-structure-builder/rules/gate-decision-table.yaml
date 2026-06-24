@@ -4,9 +4,9 @@
   "rules": [
     {"id": "KB-GATE-001", "condition": "target_forbidden", "decision": "blocked"},
     {"id": "KB-GATE-002", "condition": "target_unreadable", "decision": "blocked"},
-    {"id": "KB-GATE-003", "condition": "status_verified", "decision": "manual_review"},
-    {"id": "KB-GATE-004", "condition": "protection_critical", "decision": "manual_review", "validation_plan_required": true},
-    {"id": "KB-GATE-005", "condition": "protection_guarded", "decision": "manual_review"},
+    {"id": "KB-GATE-003", "condition": "semantic_conflict", "decision": "manual_review", "report_required": true},
+    {"id": "KB-GATE-004", "condition": "high_risk_field_change", "decision": "manual_review", "validation_plan_required": true},
+    {"id": "KB-GATE-005", "condition": "replacement_delete_or_promotion", "decision": "manual_review", "report_required": true},
     {"id": "KB-GATE-006", "condition": "append_only_violation", "decision": "blocked"},
     {"id": "KB-GATE-007", "condition": "supersession_missing", "decision": "blocked"},
     {"id": "KB-GATE-008", "condition": "strong_record_unread", "decision": "blocked"},

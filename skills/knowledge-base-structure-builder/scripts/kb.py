@@ -45,10 +45,17 @@ FULL_PREFLIGHT_CHANGE_CLASSES = {
     "protected_rewrite",
     "metadata_status_change",
     "evidence_level_change",
-    "guarded_or_critical_target",
 }
-LIGHTWEIGHT_CONFIRMATION_RECORD_TYPES = {"current"}
-LIGHTWEIGHT_CONFIRMATION_PROTECTION_LEVELS = {"guarded", "critical"}
+HIGH_RISK_FIELD_CHANGE_CLASSES = {"current_group_update", "metadata_status_change", "evidence_level_change"}
+REPLACEMENT_DELETE_PROMOTION_CLASSES = {
+    "delete",
+    "move",
+    "formal_knowledge_promotion",
+    "external_source_promotion",
+    "supersession",
+    "conclusion_replacement",
+}
+SEMANTIC_CONFLICT_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
 
 
 class GovernanceError(RuntimeError):
@@ -959,9 +966,9 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
     condition_values = {
         "target_forbidden": context["target_forbidden"],
         "target_unreadable": context["target_unreadable"],
-        "status_verified": context["effective"].get("status") == "verified",
-        "protection_critical": context["effective"].get("protection_level") == "critical",
-        "protection_guarded": context["effective"].get("protection_level") == "guarded",
+        "semantic_conflict": bool(context["semantic_conflicts"]),
+        "high_risk_field_change": context["change_class"] in HIGH_RISK_FIELD_CHANGE_CLASSES,
+        "replacement_delete_or_promotion": context["intent"] in {"delete", "supersede"} or context["replaces_conclusion"] or context["change_class"] in REPLACEMENT_DELETE_PROMOTION_CLASSES,
         "append_only_violation": context["effective"].get("change_policy") == "append_only" and context["intent"] in {"modify", "delete", "supersede"},
         "supersession_missing": context["effective"].get("change_policy") == "explicit_supersession_required" and (context["intent"] == "supersede" or context["replaces_conclusion"]) and not (
             context["supersedes"]
@@ -988,6 +995,22 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
         validation_required = validation_required or rule.get("validation_plan_required", False)
     decision = "blocked" if "blocked" in decisions else ("manual_review" if "manual_review" in decisions else "allow")
     return decision, triggered, validation_required
+
+
+def semantic_conflict_records(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    conflicts = []
+    for record in matches:
+        if record["record_type"] not in SEMANTIC_CONFLICT_RECORD_TYPES:
+            continue
+        if not record.get("matched_terms") and record.get("source") != "retrieval_package":
+            continue
+        conflicts.append({
+            "path": record["path"],
+            "record_type": record["record_type"],
+            "matched_terms": record.get("matched_terms", []),
+            "source": record.get("source", "trace_index"),
+        })
+    return conflicts
 
 
 def load_or_build_trace(root: Path, override: str | None = None, authorized: list[Path] | None = None) -> dict[str, Any]:
@@ -1073,10 +1096,12 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             read_errors.append({"path": record["path"], "error": str(exc)})
     read_paths = {item["path"] for item in source_reads}
     conflicts = index.get("supersession_cycles", [])
+    semantic_conflicts = semantic_conflict_records(matches)
     context = {
         "target_forbidden": target_forbidden,
         "target_unreadable": target_unreadable,
         "effective": metadata.get("effective", {}),
+        "change_class": args.change_class,
         "high_risk_change": args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES or args.intent in {"delete", "supersede"} or args.replaces_conclusion,
         "intent": args.intent,
         "supersedes": args.supersedes,
@@ -1087,6 +1112,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         "matches": matches,
         "read_paths": read_paths,
         "supersession_conflicts": conflicts,
+        "semantic_conflicts": semantic_conflicts,
     }
     decision, triggered, validation_required = evaluate_gate(context)
     if package_check and not package_check["valid"]:
@@ -1130,6 +1156,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             for read in source_reads
             if any(re.search(r"constraints?|约束|必须|不得", section["heading"], re.I) for section in read["sections_read"])
         ],
+        "semantic_conflicts": semantic_conflicts,
         "potentially_overwritten_fixes": [item["path"] for item in matches if item["record_type"] == "fix"],
         "required_validations": [],
         "authorization_gaps": ([target_rel] if target_forbidden else []) + ([str(policy_file)] if policy_unreadable else []),
@@ -1222,13 +1249,6 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
         full_preflight_reasons.append("replaces_conclusion")
     if args.supersedes:
         full_preflight_reasons.append("supersedes")
-    confirmation_reasons = []
-    if not full_preflight_reasons and args.intent in {"append", "create"}:
-        if record_type in LIGHTWEIGHT_CONFIRMATION_RECORD_TYPES:
-            confirmation_reasons.append(f"target_record_type:{record_type}")
-        if effective.get("protection_level") in LIGHTWEIGHT_CONFIRMATION_PROTECTION_LEVELS:
-            confirmation_reasons.append(f"protection_level:{effective.get('protection_level')}")
-
     target_hashes = []
     if target.is_file():
         target_hashes.append({"path": target_rel, "hash": sha256_file(target)})
@@ -1240,8 +1260,6 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
         decision = "blocked"
     elif full_preflight_reasons:
         decision = "requires_full_preflight"
-    elif confirmation_reasons and not args.user_confirmed:
-        decision = "requires_user_confirmation"
 
     report = {
         "minimal_apply_snapshot": {
@@ -1274,10 +1292,10 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
             "source_documents_read": False,
             "full_preflight_required": bool(full_preflight_reasons),
             "full_preflight_reasons": full_preflight_reasons,
-            "user_confirmation_required": bool(confirmation_reasons),
+            "user_confirmation_required": False,
             "user_confirmed": args.user_confirmed,
             "batch_confirmation_id": args.batch_confirmation_id,
-            "confirmation_reasons": confirmation_reasons,
+            "confirmation_reasons": [],
         },
         "gate_decision": decision,
     }
@@ -1288,8 +1306,6 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
     if decision == "allow":
         return 0
     if decision == "requires_full_preflight":
-        return 2
-    if decision == "requires_user_confirmation":
         return 2
     return 3
 
