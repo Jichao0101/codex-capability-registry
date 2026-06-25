@@ -37,7 +37,7 @@ Check yourself: would a strong senior engineer call this overcomplicated? If yes
 
 ## 3. Surgical Changes
 
-Touch only what you must. Clean up only your own mess.
+Touch only what you must. Clean up your own mess, including code your change makes obsolete.
 
 When editing existing code:
 
@@ -48,7 +48,10 @@ When editing existing code:
 
 When your own edits create leftovers:
 
+- Surgical change includes deleting code made obsolete by the change.
 - Remove imports, variables, and functions made unused by your change.
+- Remove or merge old branches, helpers, comments, and test fixtures that are replaced, bypassed, downgraded, duplicated, or stripped of their only responsibility by your change.
+- Default to deletion for code made stale by your diff; keeping it requires a concrete reason such as compatibility, an active call path, or a still-valid test contract.
 - Do not remove pre-existing dead code unless asked.
 
 Test: every changed line should trace directly to the user's request.

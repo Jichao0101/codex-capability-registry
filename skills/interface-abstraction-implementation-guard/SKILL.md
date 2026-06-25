@@ -5,21 +5,9 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 
 # 接口与抽象实现守门
 
-## 1. 定位
+## 1. 执行边界
 
-本 skill 用作实现阶段守门，不重新做大范围模块设计评审。它把最近批准的设计评审结论或用户方案转换为具体实现约束，并检查最终 diff 是否仍在约束范围内。
-
-核心目标：
-
-- 保证 public/private API 修改不超出已批准计划。
-- 防止未经评审的 helper 拆分、wrapper、context/result payload 和新增内部抽象扩大认知接口。
-- 将 private interface 视为需要证明收益的成本项，而不是默认禁止项；当它能显著提升主流程可读性、依赖显式性或 phase 边界清晰度时，可以优先于 private interface 最小化。
-- 除非明确授权，否则保持行为边界、失败模型、ownership、生命周期和调用方责任不变。
-- 在完成前发现抽象漂移和 API 漂移。
-
-## 2. 与 `deep-module-design-review` 的关系
-
-`deep-module-design-review` 用于分析和规划。本 skill 用于实现。
+本 skill 只约束实现阶段，不重新做大范围模块设计评审。
 
 若存在近期评审结论，把它视为设计事实源：
 
@@ -27,26 +15,9 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 只实现当前 active plan step 或明确批准的子集。
 - 除非实现中命中停止条件，否则不重新打开大设计问题。
 
-若没有评审结论，但实现任务明显触及接口或抽象边界，只执行第 5 节的最小前置审计。若审计发现非局部设计风险，应停止并建议先执行 `deep-module-design-review`。
+若没有评审结论，但实现明显触及接口或抽象边界，只执行第 3 节的最小前置审计。若审计发现非局部设计风险，应停止并建议先执行 `deep-module-design-review`。
 
-## 3. 触发与排除
-
-实现或重构代码时，若满足以下任一条件，使用本 skill：
-
-- 新增、删除、重命名或修改 public API、private header API、internal API、方法签名、导出类型、callback 或跨模块数据契约。
-- 新增或重组 `class`、`struct`、`enum`、`View`、`Payload`、`Context`、`Row`、`Result`、wrapper、helper object、strategy object、parser、mapper、cache、state owner 或 lifecycle owner。
-- 把大函数拆成 helper、合并 helper、跨文件移动 helper，或改变 helper 可见性。
-- 实现先前设计评审计划中的某一步。
-- 改变行为边界：错误处理、fallback 规则、顺序、副作用、持久化/序列化形态、并发语义、ownership、生命周期或调用方责任。
-
-以下情况不要使用本 skill：
-
-- 纯格式化、拼写、import 清理、生成文件刷新或构建元数据修改。
-- 小型机械替换，且 API、抽象、helper 结构和行为边界均不变。
-- 紧急 hot patch，且用户明确要求最窄缺陷修复、不要重构。
-- 只做评审、不进入实现的任务。
-
-## 4. 实现流程
+## 2. 实现流程
 
 ### 第一步：查找设计事实源
 
@@ -55,7 +26,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 1. 当前对话中用户提供的实现方案。
 2. repo、issue、PR 或任务记录中近期的 `deep-module-design-review` 结论或评审工件。
 3. 说明当前契约的模块文档、设计记录、测试或代码注释。
-4. 第 5 节的最小前置审计。
+4. 第 3 节的最小前置审计。
 
 只读取能确认契约的最小相关上下文。不要基于未读取文件推断事实。
 
@@ -91,7 +62,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 除非当前 step 明确授权，否则保持 public API 不变。
 - 把 private header 中的方法和类型也视为维护者必须理解的 API surface；它们是成本项，需要用可读性、依赖显式性、phase 边界或不变量收益证明，但不是禁止项。
 - 新增持久类型前，优先复用已有 domain object、容器、局部变量、局部 lambda、函数局部 struct 或 `.cpp`/internal helper。
-- 只有当新类型已在批准清单中，或通过第 6 节最小抽象检查时，才允许新增。
+- 只有当新类型已在批准清单中，或通过第 4 节最小抽象检查时，才允许新增。
 - helper 提取优先保持 phase-level 语义；避免把固定顺序执行链暴露成一组 step helper。
 - 低可见性不等于更好抽象。不得为了避免 private API surface 而把稳定 phase 边界强行压缩成函数局部 lambda。
 - 局部 lambda 只适合局部机制；若 lambda 表达完整 phase、捕获大量状态、形成固定执行链、承载跨步骤状态演化，或导致不同抽象层级继续堆叠在同一大函数内，应停止并重新评估是否需要 phase-level `.cpp` / internal helper 或 private helper。
@@ -102,7 +73,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 
 如果实现中发现 guardrail 外的新需求，先停止，不要继续编码该部分。记录偏差，并请求用户批准或对新增点执行最小前置审计。
 
-## 5. 无评审结论时的最小前置审计
+## 3. 无评审结论时的最小前置审计
 
 仅在没有近期设计评审或批准方案，且实现看起来会触及 API 或抽象边界时使用。
 
@@ -128,7 +99,7 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 实现必须在多个竞争性模块边界之间做选择。
 - 预期 diff 无法解释为一个小 plan step，或没有清晰验证方式。
 
-## 6. 最小抽象检查
+## 4. 最小抽象检查
 
 新增或保留任何未经批准的非平凡抽象前，执行本检查。
 
@@ -179,7 +150,40 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 决策：新增 / 局部化 / 暂缓 / 拒绝
 ```
 
-## 7. Diff 审计
+## 5. Stale-Code Elimination Pass
+
+每次实现后、Diff 审计前，必须执行 stale-code elimination pass。清理不是可选整理，而是实现阶段的强制闭环。
+
+原则：
+
+- Surgical change 包含删除本次修改使其过时的代码。
+- 凡是被本次修改替代、绕过、降级、重复表达或失去唯一职责的代码，默认删除。
+- 保留需要证明；不能证明仍有独立职责、调用路径、测试价值或兼容约束的旧实现，不应留在 diff 后。
+- 不用注释、命名或测试夹具为已经退化的代码制造存在理由。
+- 不扩大到无关历史债务；只处理本次修改造成或暴露的 stale code。
+
+必须检查：
+
+- 旧路径、旧分支、fallback、feature flag 分支是否仍可达且仍表达真实行为差异？
+- 旧 helper、wrapper、adapter、临时类型是否只是在重复新路径或搬运同一数据？
+- 旧变量、中间状态、缓存字段、参数、返回值是否仍有唯一职责？
+- 注释、文档、日志、错误信息是否还在描述被替换的流程或不变量？
+- 测试夹具、mock、golden、fixture、helper assertion 是否仍覆盖有效契约，而不是只服务旧结构？
+- 新旧实现是否同时存在但只有一个是事实源？
+
+保留任何疑似 stale code 时，必须记录简短理由：
+
+```text
+保留对象：
+为何未 stale：
+仍覆盖的调用路径/契约：
+删除风险：
+后续清理触发条件：
+```
+
+若发现 stale code，应优先删除或合并后再进入 Diff 审计。若删除会越过当前 guardrail，例如影响未批准的 public API、兼容承诺或外部契约，应停止并报告需要批准，而不是静默保留。
+
+## 6. Diff 审计
 
 编辑后、最终回复前，审计实际 diff。
 
@@ -187,16 +191,17 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 
 - 每个修改文件和修改符号是否都能映射到当前 plan step？
 - 是否改变了 public API、private header API、签名、数据契约或调用方责任？
-- 新增 helper/type 是否限于批准清单或第 6 节决策？
+- 新增 helper/type 是否限于批准清单或第 4 节决策？
 - 若新增 private helper/type，diff 是否明确换来了主流程可读性、依赖显式性或 phase 边界收益，而不是只把代码搬家？
 - helper 提取是在隐藏复杂性，还是暴露固定执行脚本？
 - diff 是否引入风险边界外的行为变化？
 - 测试或验证是否覆盖相关契约？
 - 是否混入无关清理、格式化、命名或注释修改，导致 diff 扩大？
+- 是否已完成第 5 节 stale-code elimination pass；保留的疑似 stale code 是否有明确证明？
 
 若发现漂移，应把实现修回 guardrail 内，或停止并报告需要新的设计/批准。
 
-## 8. 输出要求
+## 7. 输出要求
 
 非平凡实现前，给出简短守门声明：
 
@@ -214,10 +219,11 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - API/抽象变更；若没有，明确写“无”。
 - 新增 helper/type 决策，以及为何仍在 guardrail 内。
 - 行为变化；若不应有，明确写“无意图行为变化”。
+- Stale-code elimination pass 结果；若保留疑似 stale code，给出保留理由。
 - Diff 审计结果。
 - 已运行的验证及结果；若未运行，说明原因。
 
-## 9. 自检
+## 8. 自检
 
 结束前确认：
 
@@ -226,5 +232,6 @@ description: 用于非机械代码修改的实现阶段，约束 public/private 
 - 没有新增未批准的 public/private API surface。
 - 没有新增未批准的 type、wrapper、context、payload、row、result 或 view。
 - private header surface 没有累积临时实现细节。
+- 已删除或合并本次修改造成的旧路径、旧 helper、旧变量、旧分支、旧注释和旧测试夹具；任何保留都有明确理由。
 - 行为、顺序、错误、副作用、生命周期和 ownership 没有越过声明的风险边界。
 - 最终 diff 审计检查的是实际修改，而不是实现意图。
