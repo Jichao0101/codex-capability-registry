@@ -1,4 +1,4 @@
 interface:
-  display_name: "主动学习导师"
+  display_name: "knowledge-active-tutor"
   short_description: "用追问和费曼法诊断理解"
   default_prompt: "Use $knowledge-active-tutor 帮我用苏格拉底追问和费曼解释学习一个知识库主题。"
