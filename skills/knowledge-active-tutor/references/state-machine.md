@@ -10,13 +10,15 @@
 
 动作：
 - 识别主题、目标深度、上下文、时间预算，以及用户想要严格测试还是教练式引导。
-- 如果主题过大，收敛到一个概念、机制或判断规则。
+- 如果主题过大，先拆出 4-7 个关键覆盖区，再选择本轮优先覆盖的概念、机制或判断规则。
+- 对系统性主题优先建立骨架，不要一开始陷入单个局部。
 
 进入下一阶段的条件：
 - 概念和目标深度足够清楚，可以选择材料。
 
 可问：
 - “这轮学习你希望达到什么程度：能定义、能应用、能解释机制，还是能处理边界反例？”
+- “这个主题你觉得可以拆成哪几个关键模块？你最想先补哪一块？”
 
 ## Phase 1：检索或读取材料
 
@@ -52,19 +54,54 @@ contrasts:
 examples:
 counterexamples:
 transfer_tasks:
+coverage_budget:
+  coverage_areas:
+  current_area:
+  covered_areas:
+  local_drill_count:
+  local_drill_limit:
+  depth_extension_used:
+  depth_extension_conditions:
+  coverage_minimum:
+  return_to_map_trigger:
 ```
 
 该图谱默认只供内部使用。只有用户要求“给我知识地图”时才输出。
+
+### 覆盖预算
+
+对大主题使用覆盖预算，避免局部深挖吞掉整体骨架：
+
+- 默认同一 coverage area 连续诊断 1-2 轮。
+- 如果用户连续 1-2 轮回答质量高，认为该局部达到 working，停止深挖，回到大图或切换到下一个 coverage area。
+- 如果用户 1-2 轮明显答不上来，定位缺口，做一次短补课，然后停止深挖，回到大图；不要继续在同一局部追问。
+- 只有当用户回答部分正确但关键关系不闭合时，允许第 3 轮追问，用来定位最小缺口。
+- 第 3 轮后必须执行 coverage check。
+
+### 深度续费条件
+
+局部深挖不是绝对禁止。命中以下条件之一时，可以追加 1 轮：
+
+- 该局部是后续覆盖区的前置概念，不懂会阻断整体理解。
+- 用户主动要求深入这一点。
+- 用户已经接近理解，只差一个关键关系，继续一轮能完成闭环。
+- 当前学习目标本来就是掌握该局部，而不是建立全局骨架。
+
+每次追加后必须做 coverage check。不得连续追加两次，除非用户明确把该局部设为本轮主目标。
 
 ## Phase 3：诊断前测
 
 从成本最低、最能暴露结构的问题开始：
 
+- 大主题学习开始时，第一问优先使用 `map_probe` 或 `definition_probe`：
+  - 用户缺少整体骨架时，用 `map_probe`。
+  - 用户已经能说出骨架但核心概念不清时，用 `definition_probe`。
 - 不熟悉概念：`definition_probe`
 - 知道术语但过程不清：`mechanism_probe`
 - 容易和邻近概念混淆：`contrast_probe`
 - 用户自称有把握：`boundary_probe` 或 `application_probe`
 - 用户要求费曼法：`feynman_probe`
+- 主题较大且用户缺少全局框架：`map_probe`
 
 根据回答推进：
 
@@ -76,6 +113,9 @@ transfer_tasks:
 
 目标：
 - 在不过早给答案的情况下暴露缺失链接。
+- 局部深挖后，必须使用 `map_probe` 或 `application_probe` 回到系统面：
+  - 需要回看模块关系时，用 `map_probe`。
+  - 需要检查能否迁移到完整场景时，用 `application_probe`。
 
 可问：
 - “这个判断成立需要什么前提？”
@@ -88,6 +128,8 @@ transfer_tasks:
 
 进入 Phase 7 的条件：
 - 同一个缺口连续两次暴露，或用户要求帮助。
+
+进入 Coverage Check 的条件见文末专门小节。
 
 ## Phase 5：费曼复述
 
@@ -117,6 +159,7 @@ transfer_tasks:
 然后选择：
 - 具体纠偏进入 Phase 7。
 - 模型基本闭合时进入 Phase 8。
+- 局部预算用尽或主题覆盖不足时进入 Coverage Check。
 
 ## Phase 7：微型补课
 
@@ -130,6 +173,9 @@ transfer_tasks:
 - 完整讲座。
 - 罗列大量事实。
 - 引入无关概念。
+
+补课后：
+- 如果补课修正的是局部缺口，优先执行 coverage check，而不是继续在同一局部追问。
 
 ## Phase 8：迁移题或反例题
 
@@ -149,7 +195,52 @@ transfer_tasks:
 - 使用材料。
 - 强项。
 - 薄弱点。
+- 已覆盖区域。
+- 未覆盖区域。
 - 1 个下一步练习任务。
-- 如果本轮暴露出可复用材料，给出可选候选笔记 proposal。
+- 只有用户要求沉淀，或本轮明确暴露出可复用学习经验、误区模式、项目约束或知识缺口时，才提供候选笔记或学习记录 proposal。
+- 不要把普通学习总结自动包装成知识库候选。
 
 除非由其他治理 skill 处理写入，否则不要写入知识库。
+
+## Coverage Check：回到大图
+
+Coverage Check 是状态机的显式转移门禁，用于平衡广度和深度。它不是额外讲解阶段，而是决定下一问应该继续局部、回到系统面、切换覆盖区、做迁移题或总结。
+
+### 触发时机
+
+- 大主题学习开始后尚未建立覆盖区地图。
+- 同一 `coverage_budget.current_area` 已连续追问 2 轮。
+- 第 3 轮局部追问已经完成。
+- 用户已经暴露并修正一个最小缺口。
+- 微型补课刚修正一个局部缺口。
+- 当前问题开始偏向字段、术语或局部实现细节，且 `coverage_budget.covered_areas` 尚未达到 `coverage_budget.coverage_minimum`。
+- 用户回答质量高，当前局部已经达到 working，没有必要继续追问。
+- 用户明显答不上来，缺口已经足够明确，继续追问只会消耗局部预算。
+
+### 检查内容
+
+- `coverage_budget.coverage_areas` 是否已经建立，是否需要先用 `map_probe` 补齐。
+- `coverage_budget.current_area` 是否仍服务本轮学习目标。
+- `coverage_budget.local_drill_count` 是否达到 `coverage_budget.local_drill_limit`。
+- `coverage_budget.depth_extension_used` 是否已经使用；继续深挖是否命中 `coverage_budget.depth_extension_conditions`。
+- 当前局部是否达到 working，或已经暴露出足够明确的缺口。
+- 哪些 coverage areas 已覆盖，哪些仍未覆盖。
+- 未覆盖区域里哪个最影响总体理解。
+
+### 转移规则
+
+- 没有整体骨架：下一问使用 `map_probe`。
+- 骨架存在但核心概念不清：下一问使用 `definition_probe`。
+- 局部刚深挖完且需要回到系统面：下一问使用 `map_probe` 或 `application_probe`。
+- 局部达到 working：标记该 area 已覆盖，切换到下一个关键 coverage area。
+- 局部缺口明确但未修正：做一次 Phase 7 微型补课，然后回到 Coverage Check。
+- 局部缺口已修正：切换覆盖区或进入 Phase 8 迁移题。
+- 命中深度续费条件且尚未用过续费：允许追加 1 轮局部追问，然后必须再次 Coverage Check。
+- 未命中深度续费条件：停止局部深挖，切换覆盖区或总结薄弱点。
+
+### 输出方式
+
+- 不要暴露完整内部预算。
+- 可以简短说明：“这个分支先停在这里，我们回到系统设计大图。”
+- 下一步只问 1 个新问题。
