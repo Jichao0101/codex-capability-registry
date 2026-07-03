@@ -99,7 +99,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         result = self.run_cli(
             "preflight", "--root", str(self.root), "--target", "01_Knowledge/item.md",
             "--intent", "modify", "--authorized-path", str(self.root), "--query", "driver binding",
-            "--output", str(report),
+            "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
@@ -108,6 +108,20 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertTrue(any(item["path"].endswith("driver-binding-fix.md") for item in data["source_documents_read"]))
         check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_preflight_manual_review_defaults_to_zero_exit_for_agent_loops(self) -> None:
+        target = self.root / "01_Knowledge/item.md"
+        target.write_text("---\nstatus: verified\nprotection_level: guarded\nchange_policy: free_update\n---\n# Driver binding\n", encoding="utf-8")
+        fix = self.root / "02_Projects/Demo/fixes/driver-binding-fix.md"
+        fix.write_text("# Driver binding fix\nKeep driver binding constraint.\n", encoding="utf-8")
+        report = self.root / "preflight.json"
+        result = self.run_cli(
+            "preflight", "--root", str(self.root), "--target", "01_Knowledge/item.md",
+            "--intent", "modify", "--authorized-path", str(self.root), "--query", "driver binding",
+            "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(report.read_text())["gate_decision"], "manual_review")
 
     def test_preflight_guarded_verified_target_without_conflict_can_be_allowed(self) -> None:
         target = self.root / "01_Knowledge/item.md"
@@ -127,7 +141,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         target = self.root / "03_Inbox/note.md"
         target.write_text("# Note\n", encoding="utf-8")
         report = self.root / "preflight.json"
-        result = self.run_cli("preflight", "--root", str(self.root), "--target", "03_Inbox/note.md", "--intent", "modify", "--output", str(report))
+        result = self.run_cli("preflight", "--root", str(self.root), "--target", "03_Inbox/note.md", "--intent", "modify", "--output", str(report), "--strict-exit-code")
         self.assertEqual(result.returncode, 3)
         self.assertEqual(json.loads(report.read_text())["gate_decision"], "blocked")
 
@@ -137,7 +151,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         report = self.root / "preflight.json"
         result = self.run_cli(
             "preflight", "--root", str(self.root), "--target", "04_Sources/source.md",
-            "--intent", "modify", "--authorized-path", str(self.root), "--output", str(report),
+            "--intent", "modify", "--authorized-path", str(self.root), "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 3)
         data = json.loads(report.read_text())
@@ -165,7 +179,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         result = self.run_cli(
             "preflight", "--root", str(self.root), "--target", "03_Inbox/note.md",
             "--intent", "modify", "--authorized-path", str(self.root),
-            "--forbidden-path", str(self.root / "03_Inbox"), "--output", str(report),
+            "--forbidden-path", str(self.root / "03_Inbox"), "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 3)
         self.assertEqual(json.loads(report.read_text())["gate_decision"], "blocked")
@@ -207,7 +221,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
             "preflight", "--root", str(self.root), "--target", "01_Knowledge/item.md",
             "--intent", "modify", "--replaces-conclusion", "--authorized-path", str(self.root),
             "--supersedes", "old.md", "--supersession-reason", "new evidence",
-            "--evidence-ref", "validation.md", "--output", str(report),
+            "--evidence-ref", "validation.md", "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 3)
         data = json.loads(report.read_text())
@@ -279,6 +293,26 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertFalse(data["checks"]["user_confirmation_required"])
         self.assertEqual(data["checks"]["batch_confirmation_id"], "batch-20260624")
 
+    def test_structure_relocate_directory_scope_check_does_not_require_full_preflight(self) -> None:
+        source_dir = self.root / "03_Inbox/J6"
+        source_dir.mkdir(parents=True)
+        (source_dir / "a.md").write_text("# A\n", encoding="utf-8")
+        (source_dir / "b.md").write_text("# B\n", encoding="utf-8")
+        report = self.root / "minimal.json"
+        result = self.run_cli(
+            "minimal-apply-check", "--root", str(self.root),
+            "--target", "03_Inbox/J6",
+            "--intent", "modify", "--change-class", "structure_relocate",
+            "--authorized-path", str(self.root / "03_Inbox"),
+            "--output", str(report),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["gate_decision"], "allow")
+        self.assertFalse(data["checks"]["full_preflight_required"])
+        self.assertFalse((self.root / ".kb_cache/trace-index/index.json").exists())
+        self.assertEqual(set(data["minimal_apply_snapshot"]["target_files"]), {"03_Inbox/J6/a.md", "03_Inbox/J6/b.md"})
+
     def test_preflight_high_risk_without_retrieval_evidence_requires_manual_review(self) -> None:
         target = self.root / "02_Projects/Demo/design.md"
         target.write_text("# Design\n", encoding="utf-8")
@@ -287,7 +321,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
             "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
             "--intent", "modify", "--change-class", "conclusion_replacement",
             "--authorized-path", str(self.root / "02_Projects/Demo"),
-            "--query", "term-that-does-not-match", "--output", str(report),
+            "--query", "term-that-does-not-match", "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
@@ -305,7 +339,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
             "--target", "02_Projects/Demo/note.md",
             "--intent", "modify", "--change-class", "conclusion_replacement",
             "--authorized-path", str(self.root / "02_Projects/Demo"),
-            "--replaces-conclusion", "--output", str(report),
+            "--replaces-conclusion", "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
@@ -380,7 +414,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         result = self.run_cli(
             "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
             "--intent", "modify", "--authorized-path", str(self.root / "02_Projects"),
-            "--retrieval-package", str(package), "--output", str(report),
+            "--retrieval-package", str(package), "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
@@ -402,7 +436,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         result = self.run_cli(
             "preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
             "--intent", "modify", "--authorized-path", str(self.root / "02_Projects"),
-            "--retrieval-package", str(package), "--output", str(report),
+            "--retrieval-package", str(package), "--output", str(report), "--strict-exit-code",
         )
         self.assertEqual(result.returncode, 3)
         data = json.loads(report.read_text())

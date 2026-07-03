@@ -36,8 +36,6 @@ RETRIEVAL_SUMMARY_TITLES = {"retrieval summary", "retrieval anchors"}
 RETRIEVAL_SUMMARY_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
 FULL_PREFLIGHT_CHANGE_CLASSES = {
     "current_group_update",
-    "delete",
-    "move",
     "formal_knowledge_promotion",
     "external_source_promotion",
     "supersession",
@@ -45,16 +43,19 @@ FULL_PREFLIGHT_CHANGE_CLASSES = {
     "protected_rewrite",
     "metadata_status_change",
     "evidence_level_change",
+    "semantic_delete",
+    "protected_delete",
 }
 HIGH_RISK_FIELD_CHANGE_CLASSES = {"current_group_update", "metadata_status_change", "evidence_level_change"}
 REPLACEMENT_DELETE_PROMOTION_CLASSES = {
-    "delete",
-    "move",
     "formal_knowledge_promotion",
     "external_source_promotion",
     "supersession",
     "conclusion_replacement",
+    "semantic_delete",
+    "protected_delete",
 }
+STRUCTURE_SCOPE_CHANGE_CLASSES = {"structure_relocate", "index_path_sync", "archive_move"}
 SEMANTIC_CONFLICT_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
 
 
@@ -961,6 +962,28 @@ def nearest_existing_parent(path: Path) -> Path:
     return candidate
 
 
+def is_structure_scope_change(change_class: str) -> bool:
+    return change_class in STRUCTURE_SCOPE_CHANGE_CLASSES
+
+
+def target_readable_for_intent(target: Path, intent: str, change_class: str) -> bool:
+    if intent == "create":
+        create_parent = nearest_existing_parent(target)
+        return create_parent.is_dir() and os.access(create_parent, os.R_OK)
+    if target.is_file() and os.access(target, os.R_OK):
+        return True
+    return is_structure_scope_change(change_class) and target.is_dir() and os.access(target, os.R_OK)
+
+
+def target_snapshot(root: Path, target: Path, target_rel: str, change_class: str) -> tuple[list[str], list[dict[str, str]]]:
+    if target.is_file():
+        return [target_rel], [{"path": target_rel, "hash": sha256_file(target)}]
+    if target.is_dir() and is_structure_scope_change(change_class):
+        files = [path.relative_to(root).as_posix() for path in markdown_files(root, [target])]
+        return files or [target_rel], [{"path": rel, "hash": sha256_file(root / rel)} for rel in files]
+    return [target_rel], []
+
+
 def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], bool]:
     table = load_rule("gate-decision-table.yaml")
     condition_values = {
@@ -968,7 +991,12 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
         "target_unreadable": context["target_unreadable"],
         "semantic_conflict": bool(context["semantic_conflicts"]),
         "high_risk_field_change": context["change_class"] in HIGH_RISK_FIELD_CHANGE_CLASSES,
-        "replacement_delete_or_promotion": context["intent"] in {"delete", "supersede"} or context["replaces_conclusion"] or context["change_class"] in REPLACEMENT_DELETE_PROMOTION_CLASSES,
+        "replacement_delete_or_promotion": (
+            (context["intent"] == "delete" and not context["structure_scope_change"])
+            or context["intent"] == "supersede"
+            or context["replaces_conclusion"]
+            or context["change_class"] in REPLACEMENT_DELETE_PROMOTION_CLASSES
+        ),
         "append_only_violation": context["effective"].get("change_policy") == "append_only" and context["intent"] in {"modify", "delete", "supersede"},
         "supersession_missing": context["effective"].get("change_policy") == "explicit_supersession_required" and (context["intent"] == "supersede" or context["replaces_conclusion"]) and not (
             context["supersedes"]
@@ -1067,10 +1095,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         or any(is_authorized(target, [path]) for path in forbidden)
         or (root not in target.parents and target != root)
     )
-    create_parent = nearest_existing_parent(target)
-    target_unreadable = (args.intent != "create" and (not target.is_file() or not os.access(target, os.R_OK))) or (
-        args.intent == "create" and (not create_parent.is_dir() or not os.access(create_parent, os.R_OK))
-    )
+    target_unreadable = not target_readable_for_intent(target, args.intent, args.change_class)
     metadata = target_metadata(root, target) if not target_forbidden else {"declared": {}, "effective": {}, "value_origin": {}, "document_hash": None}
     package_check = None
     package_source_paths: list[str] = []
@@ -1102,7 +1127,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         "target_unreadable": target_unreadable,
         "effective": metadata.get("effective", {}),
         "change_class": args.change_class,
-        "high_risk_change": args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES or args.intent in {"delete", "supersede"} or args.replaces_conclusion,
+        "high_risk_change": args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES or args.intent == "supersede" or args.replaces_conclusion,
+        "structure_scope_change": is_structure_scope_change(args.change_class),
         "intent": args.intent,
         "supersedes": args.supersedes,
         "supersession_reason": args.supersession_reason,
@@ -1121,9 +1147,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     if read_errors:
         decision = "blocked"
         triggered.append({"rule_id": "KB-GATE-008", "condition": "source_read_error", "decision": "blocked"})
-    target_hashes = []
-    if target.is_file():
-        target_hashes.append({"path": target_rel, "hash": sha256_file(target)})
+    target_files, target_hashes = target_snapshot(root, target, target_rel, args.change_class)
     report = {
         "preflight_snapshot": {
             "generated_at": utc_now(),
@@ -1136,7 +1160,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             "authorized_paths": [str(path) for path in authorized],
             "policy_file": str(policy_file),
             "policy_hash": sha256_file(policy_file) if not policy_unreadable else None,
-            "target_files": [target_rel],
+            "target_files": target_files,
             "target_hashes_before_write": target_hashes,
             "source_hashes_valid": not read_errors,
         },
@@ -1179,6 +1203,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     write_json(output, report)
     pruned = prune_old_reports(output, "preflight") if args.output is None else []
     print(json.dumps({"output": str(output), "gate_decision": decision, "matched_records": len(matches), "pruned_reports": pruned}, ensure_ascii=False))
+    if not args.strict_exit_code:
+        return 0
     return 0 if decision == "allow" else (2 if decision == "manual_review" else 3)
 
 
@@ -1192,9 +1218,10 @@ def cmd_hash_check(args: argparse.Namespace) -> int:
     if snapshot.get("skill_content_hash") != skill_content_hash():
         mismatches.append({"path": "<skill>", "expected": snapshot.get("skill_content_hash"), "actual": skill_content_hash()})
     authorized = [Path(value).resolve() for value in snapshot.get("authorized_paths", [str(root)])]
-    current_vault_fingerprint = vault_fingerprint(root, authorized)
-    if snapshot.get("vault_fingerprint") != current_vault_fingerprint:
-        mismatches.append({"path": "<vault>", "expected": snapshot.get("vault_fingerprint"), "actual": current_vault_fingerprint})
+    if args.check_vault_fingerprint:
+        current_vault_fingerprint = vault_fingerprint(root, authorized)
+        if snapshot.get("vault_fingerprint") != current_vault_fingerprint:
+            mismatches.append({"path": "<vault>", "expected": snapshot.get("vault_fingerprint"), "actual": current_vault_fingerprint})
     policy_path = Path(snapshot["policy_file"]) if snapshot.get("policy_file") else None
     policy_hash = sha256_file(policy_path) if policy_path and policy_path.is_file() else None
     if snapshot.get("policy_hash") != policy_hash:
@@ -1233,27 +1260,21 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
         or not is_authorized(target, authorized)
         or any(is_authorized(target, [path]) for path in forbidden)
     )
-    create_parent = nearest_existing_parent(target)
-    target_unreadable = (args.intent != "create" and (not target.is_file() or not os.access(target, os.R_OK))) or (
-        args.intent == "create" and (not create_parent.is_dir() or not os.access(create_parent, os.R_OK))
-    )
+    target_unreadable = not target_readable_for_intent(target, args.intent, args.change_class)
     metadata = target_metadata(root, target) if not target_outside_root and not target_forbidden else {"declared": {}, "effective": {}, "document_hash": None, "record_type": None}
     record_type = metadata.get("record_type") or derive_record_type(target_rel)
     effective = metadata.get("effective", {})
     full_preflight_reasons = []
     if args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES:
         full_preflight_reasons.append(f"change_class:{args.change_class}")
-    if args.intent not in {"append", "create"}:
+    if args.intent not in {"append", "create"} and not is_structure_scope_change(args.change_class):
         full_preflight_reasons.append(f"intent:{args.intent}")
     if args.replaces_conclusion:
         full_preflight_reasons.append("replaces_conclusion")
     if args.supersedes:
         full_preflight_reasons.append("supersedes")
     target_hashes = []
-    if target.is_file():
-        target_hashes.append({"path": target_rel, "hash": sha256_file(target)})
-    elif args.intent != "create":
-        target_unreadable = True
+    target_files, target_hashes = target_snapshot(root, target, target_rel, args.change_class)
 
     decision = "allow"
     if target_forbidden or target_unreadable:
@@ -1271,7 +1292,7 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
             "authorized_paths": [str(path) for path in authorized],
             "policy_file": str(policy_file),
             "policy_hash": sha256_file(policy_file) if not policy_unreadable else None,
-            "target_files": [target_rel],
+            "target_files": target_files,
             "target_hashes_before_apply": target_hashes,
         },
         "input": {
@@ -1303,6 +1324,8 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
     write_json(output, report)
     pruned = prune_old_reports(output, "minimal-apply-check") if args.output is None else []
     print(json.dumps({"output": str(output), "gate_decision": decision, "pruned_reports": pruned}, ensure_ascii=False))
+    if not args.strict_exit_code:
+        return 0
     if decision == "allow":
         return 0
     if decision == "requires_full_preflight":
@@ -1350,6 +1373,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--limit", type=int, default=20)
     preflight.add_argument("--trace-index", help="explicit trace index; stale input blocks instead of rebuilding")
     preflight.add_argument("--output")
+    preflight.add_argument("--strict-exit-code", action="store_true", help="return non-zero for manual_review or blocked gate decisions")
     preflight.set_defaults(handler=cmd_preflight)
     minimal = sub.add_parser("minimal-apply-check")
     minimal.add_argument("--root", required=True)
@@ -1365,10 +1389,12 @@ def build_parser() -> argparse.ArgumentParser:
     minimal.add_argument("--user-confirmed", action="store_true", help="user approved this low-risk guarded/current apply, possibly at batch level")
     minimal.add_argument("--batch-confirmation-id", default="", help="optional id or note for the user-confirmed batch")
     minimal.add_argument("--output")
+    minimal.add_argument("--strict-exit-code", action="store_true", help="return non-zero for requires_full_preflight or blocked gate decisions")
     minimal.set_defaults(handler=cmd_minimal_apply_check)
     check = sub.add_parser("hash-check")
     check.add_argument("--root", required=True)
     check.add_argument("--report", required=True)
+    check.add_argument("--check-vault-fingerprint", action="store_true", help="also fail when any authorized Markdown file changed")
     check.set_defaults(handler=cmd_hash_check)
     return parser
 

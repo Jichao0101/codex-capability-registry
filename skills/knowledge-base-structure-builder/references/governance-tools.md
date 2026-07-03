@@ -33,21 +33,31 @@ Gate selection is determined by change class and write intent, not by whether Re
 
 Proposal-only commands do not edit Markdown and do not require trace-index, preflight, or hash-check. This includes report generation for retrieval summary proposals.
 
-Low-risk non-fact append/create operations use `minimal-apply-check` immediately before editing Markdown. This check only validates policy readability, explicit authorized scope, target readability/creatability, forbidden paths, target hash snapshot, and whether the change class must be escalated to full preflight. It does not build trace-index, read strong records, scan source documents, or require confirmation merely because the target is current/guarded/verified. A low-risk write is not blocked merely because no historical retrieval was run.
+Low-risk non-fact append/create operations use `minimal-apply-check` immediately before editing Markdown. Structure-only relocation and path-sync operations also use `minimal-apply-check` with `structure_relocate`, `archive_move`, or `index_path_sync`. This check only validates policy readability, explicit authorized scope, target readability/creatability, forbidden paths, target hash snapshot, and whether the change class must be escalated to full semantic preflight. It does not build trace-index, read strong records, scan source documents, or require confirmation merely because the target is current/guarded/verified. A low-risk write or structure-only move is not blocked merely because no historical retrieval was run.
 
 Target type is a caution signal, not a gate decision. `current`, `guarded`, `critical`, `verified`, and entry files should be treated carefully by the workflow, but they do not by themselves require `manual_review` or user confirmation.
 
-Full preflight is whitelist-only for high-risk change classes. Use `trace-index` + `preflight` + `hash-check` for:
+Full semantic preflight is whitelist-only for high-risk semantic change classes. Use `trace-index` + `preflight` for:
 
 - current document group updates
-- delete or move
 - formal knowledge promotion
 - external source promotion
 - supersession
 - conclusion replacement
 - protected rewrites
+- semantic/protected delete
 - metadata/status changes
 - evidence-level changes
+
+Use `minimal-apply-check` + post-write `lint` for structure-only changes:
+
+- same-vault regrouping
+- candidate folder organization
+- project document relocation
+- archive moves that do not replace current facts
+- path-only index sync
+
+`hash-check` is optional strict concurrency evidence, not a mandatory step. Use it for CI, long-running tasks, multi-agent edits, protected/current semantic rewrites, or explicit user request.
 
 If `minimal-apply-check` returns `requires_full_preflight`, switch to the full workflow.
 
@@ -64,12 +74,12 @@ If `minimal-apply-check` returns `requires_full_preflight`, switch to the full w
 2. Run `trace-index` when the cache is missing or stale. Pass authorized paths so the index is not built by scanning the whole vault first.
 3. Run `preflight` before the first target modification. Pass every authorized path explicitly.
 4. If the decision is `blocked`, do not write. Resolve the listed blocker and rerun.
-5. If the decision is `manual_review`, create a proposal or patch draft and obtain explicit review before applying it. `manual_review` must come from a concrete semantic conflict, insufficient retrieval/source coverage for a high-risk change, high-risk field changes, or replacement/delete/move/promotion/supersession semantics; do not infer it from target type alone.
+5. If the decision is `manual_review`, create a proposal or patch draft and obtain explicit review before applying it. `manual_review` must come from a concrete semantic conflict, insufficient retrieval/source coverage for a high-risk semantic change, high-risk field changes, or replacement/formal-promotion/semantic-delete/protected-delete/supersession semantics; do not infer it from target type alone.
 6. If the decision is `allow`, apply only the described change intent.
-7. Run `hash-check` immediately before writing; rerun preflight if any hash changed.
+7. Optionally run `hash-check` when strict concurrency evidence is needed; rerun preflight if checked target or source hashes changed.
 8. Run `lint` after the write; default report generation prunes older sibling reports beyond the latest three, then sync required entries.
 
-`free_update` never bypasses the applicable gate. Index hits are recall candidates; no retrieval hit is not safety proof. When full preflight is required, the preflight report must contain verifiable source-document reads for strong and protected matches. If a high-risk change has insufficient retrieval/source evidence, treat the result as `manual_review` or proposal-only; do not silently apply the write.
+`free_update` never bypasses the applicable gate. Index hits are recall candidates; no retrieval hit is not safety proof. When full semantic preflight is required, the preflight report must contain verifiable source-document reads for strong and protected matches. If a high-risk semantic change has insufficient retrieval/source evidence, treat the result as `manual_review` or proposal-only; do not silently apply the write. Structure-only movement is not semantic evidence and should be audited through the move manifest, overview/index sync, and post-write lint.
 
 ## Preflight intent
 
@@ -81,7 +91,7 @@ If `minimal-apply-check` returns `requires_full_preflight`, switch to the full w
 
 For `modify`, add `--replaces-conclusion` when the change replaces a prior conclusion; the same explicit supersession requirements then apply. The workflow must translate authorized and forbidden paths from the repository policy into CLI arguments. The report records the policy file hash but does not attempt to treat prose parsing as policy authority.
 
-Reports and caches are derived artifacts, not fact sources. A project record may cite an immutable report path and hash explicitly when the report is required as validation evidence.
+Reports and caches are derived artifacts, not fact sources. A project record may cite an immutable report path and hash explicitly when the report is required as validation evidence. `hash-check` defaults to checking rules, skill content, policy, target files, and read source sections; pass `--check-vault-fingerprint` only when every authorized Markdown change should invalidate the report.
 
 ## Retriever Package
 

@@ -62,8 +62,9 @@ Use gate granularity by change class, not by whether Retriever was run:
 - Proposal-only report generation, including `retrieval-summary-proposals`, does not require trace-index, preflight, or hash-check because it does not edit Markdown.
 - Low-risk non-fact apply operations, such as appending a `Retrieval Summary` to an original fix/decision/validation/incident record, use `minimal-apply-check` immediately before editing Markdown. They do not block merely because no historical retrieval was run.
 - Target type is a caution signal, not a review decision. `current`, `guarded`, `critical`, `verified`, and entry files do not require confirmation by themselves.
-- Full preflight is whitelist-only for high-risk change classes: current group structural updates, delete/move, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, metadata/status changes, and evidence-level changes.
-- Require `manual_review` or block only when preflight finds a concrete semantic conflict, retrieval/source coverage is insufficient for a high-risk change, high-risk fields are being changed, or the operation is replacement, delete, move, promotion, or supersession.
+- Full semantic preflight is whitelist-only for high-risk semantic change classes: current group structural updates, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, semantic/protected delete, metadata/status changes, and evidence-level changes.
+- Structure-only changes such as same-vault regrouping, candidate folder organization, project document relocation, archive moves, and path-only index sync use a scope check plus post-write lint. They do not require trace-index, source-section reads, or hash-check unless the task also changes conclusions, current fact sources, metadata/status/evidence level, promotion state, or supersession relationships.
+- Require `manual_review` or block only when preflight finds a concrete semantic conflict, retrieval/source coverage is insufficient for a high-risk semantic change, high-risk fields are being changed, or the operation is replacement, formal promotion, semantic delete, protected delete, or supersession.
 - No retrieval hit is never a safety proof. For high-risk change classes, insufficient retrieval/source evidence means `manual_review` or proposal-only output, not silent allow.
 
 For low-risk apply:
@@ -73,13 +74,20 @@ For low-risk apply:
 3. Apply only the checked append when the decision is `allow`; if the decision is `requires_full_preflight`, switch to the full workflow.
 4. Run read-only `lint` after the write and sync entries only when placement, scope, status, current fact source, or recoverability changed.
 
-For full-preflight whitelist changes:
+For structure-only relocation or path sync:
+
+1. Read authorized entries and the relevant overview/index.
+2. Run `minimal-apply-check` with a structure change class such as `structure_relocate`, `archive_move`, or `index_path_sync` to validate policy readability, authorized/forbidden paths, target readability, and target hash snapshot. Directory targets are valid for these structure change classes.
+3. Apply the move or path-only sync, then run read-only `lint` and update required entries/indexes/audit records.
+4. Do not use trace-index results or an empty retrieval result as proof of semantic safety; if the change replaces a conclusion, promotes formal knowledge, alters current fact sources, or changes metadata/status/evidence level, switch to full semantic preflight.
+
+For full semantic preflight whitelist changes:
 
 1. Read authorized entries and the relevant project/module overview.
 2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>`.
 3. Run `python3 scripts/kb.py preflight` for each target; pass the policy file plus explicit `--authorized-path` and policy-derived `--forbidden-path` values.
 4. For `blocked`, do not write. For `manual_review`, prepare a proposal or patch draft and obtain explicit review. For `allow`, apply only the declared intent. Do not convert an empty retrieval result into proof that no guarded facts, fixes, constraints, or supersessions exist.
-5. Run `hash-check` immediately before writing; rerun preflight when hashes changed.
+5. Run `hash-check` only when strict concurrency evidence is needed, such as CI, long-running tasks, multi-agent edits, protected/current semantic rewrites, or explicit user request. By default, hash-check is not mandatory for single-agent local maintenance.
 6. After writing, run read-only `lint`, remove stale lint reports from the same report directory, and perform required overview/index sync.
 
 Read `references/governance-tools.md` before using lint, trace, retrieval-summary proposal, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
