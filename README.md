@@ -23,6 +23,8 @@ For first-party skills, `manifests/skills.yaml` records the bundled repository p
 
 For third-party skills, `manifests/skills.yaml` is an installation record: it names the capability, provider/source hint, install strategy, and trusted backup path when one exists. The registry does not own or vendor that source, and machine-local runtime paths are intentionally omitted.
 
+When adding, removing, renaming, or changing the ownership/source/install strategy of a capability, update the corresponding file under `manifests/` in the same change. For embedded first-party skills, add or update the entry in `manifests/skills.yaml` together with the skill directory.
+
 ## Runtime Strategy
 
 - Keep `/home/jichao/.agents/plugins/marketplace.json` stable when possible.

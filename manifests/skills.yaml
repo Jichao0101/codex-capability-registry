@@ -77,6 +77,19 @@ skills:
     verification:
       require_manifest: SKILL.md
 
+  - name: knowledge-base-retriever
+    ownership: first_party_embedded
+    summary: 在授权路径内对 Markdown 知识库执行只读检索，生成候选 retrieval_package。
+    description_source: skills/knowledge-base-retriever/SKILL.md
+    source:
+      distribution: bundled
+      path: skills/knowledge-base-retriever
+      version: registry-baseline
+    install:
+      strategy: symlink_from_registry
+    verification:
+      require_manifest: SKILL.md
+
   - name: conversation-to-knowledge-candidate
     ownership: first_party_embedded
     summary: 从当前对话提炼可复用经验，输出候选知识卡片、source note 或 promotion proposal。
@@ -84,6 +97,19 @@ skills:
     source:
       distribution: bundled
       path: skills/conversation-to-knowledge-candidate
+      version: registry-baseline
+    install:
+      strategy: symlink_from_registry
+    verification:
+      require_manifest: SKILL.md
+
+  - name: knowledge-active-tutor
+    ownership: first_party_embedded
+    summary: 从授权知识库材料出发，用苏格拉底追问和费曼复述诊断用户理解闭环。
+    description_source: skills/knowledge-active-tutor/SKILL.md
+    source:
+      distribution: bundled
+      path: skills/knowledge-active-tutor
       version: registry-baseline
     install:
       strategy: symlink_from_registry
