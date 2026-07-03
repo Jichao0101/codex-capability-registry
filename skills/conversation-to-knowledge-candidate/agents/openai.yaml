@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conversation to Knowledge Candidate"
+  short_description: "从对话提炼可复用知识候选。"
+  default_prompt: "使用 $conversation-to-knowledge-candidate 提炼本次对话中值得沉淀的可复用经验，并输出候选知识卡片。"

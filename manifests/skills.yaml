@@ -77,6 +77,19 @@ skills:
     verification:
       require_manifest: SKILL.md
 
+  - name: conversation-to-knowledge-candidate
+    ownership: first_party_embedded
+    summary: 从当前对话提炼可复用经验，输出候选知识卡片、source note 或 promotion proposal。
+    description_source: skills/conversation-to-knowledge-candidate/SKILL.md
+    source:
+      distribution: bundled
+      path: skills/conversation-to-knowledge-candidate
+      version: registry-baseline
+    install:
+      strategy: symlink_from_registry
+    verification:
+      require_manifest: SKILL.md
+
   - name: lark-shared
     ownership: third_party_external
     summary: 飞书/Lark CLI 共享基础，包括配置初始化、认证登录、身份切换、权限和安全规则。
