@@ -1,6 +1,6 @@
 ---
 name: conversation-to-knowledge-candidate
-description: 从当前对话中提炼可复用经验，并输出结构化知识候选卡片、source note 或 promotion proposal。适用于用户要求“总结本次对话中值得沉淀的经验”“提炼可复用 knowledge”“复盘一次调试、设计或实现过程”“把对话转成知识库候选条目”“找出本次讨论中的工程原则、反模式、边界条件、验证方法或决策规则”。当对话中出现明显可复用经验、工程原则、失败模式、边界条件、验证方法、用户偏好或知识库候选时，即使用户没有明确要求沉淀，也可以主动触发并输出 proposal。不要用于普通对话摘要、只要最终结论或下一步行动、对话中没有可复用信息、内容主要来自外部资料但尚未建立 source note 或明确来源证据、事实检索/历史证据包/重复候选排查、知识库结构迁移索引/current 文档组/正式提升/写入前治理等场景。
+description: 从当前对话中提炼可复用经验，并输出结构化知识候选卡片、source note 或 promotion proposal。适用于用户要求“总结本次对话中值得沉淀的经验”“提炼可复用 knowledge”“复盘一次调试、设计或实现过程”“把对话转成知识库候选条目”“找出本次讨论中的工程原则、反模式、边界条件、验证方法或决策规则”。当阶段性工程讨论产生新约束、明确取舍、异常原因、验证结论或抽象方法，且候选价值、证据完整度与 scope consistency 通过门禁时，即使用户没有明确要求沉淀，也可以低打扰输出 proposal。不要用于普通对话摘要、只要最终结论或下一步行动、对话中没有可复用信息、内容主要来自外部资料但尚未建立 source note 或明确来源证据、事实检索/历史证据包/重复候选排查、知识库结构迁移索引/current 文档组/正式提升/写入前治理等场景。
 ---
 
 # Conversation To Knowledge Candidate
@@ -18,16 +18,49 @@ description: 从当前对话中提炼可复用经验，并输出结构化知识�
 - 不写入、不提升、不替代结论、不提高 evidence level、不编辑 current 文档组；这些动作必须由 `knowledge-base-structure-builder` 执行对应 gate。
 - 如果目标知识库存在 `AGENTS.md`，以它作为策略权威。
 
-## 主动触发克制规则
+## 主动触发门禁
 
-主动触发时保持低打扰：
+主动触发时保持低打扰。回答结束只触发检查，不等于应该沉淀。
 
-- 只有当对话中出现 1 条以上明确可复用经验，或一次复杂调试、设计、实现、评审已经收束时，才主动输出。
-- 不要在普通问答、短对话、事实解释或临时执行细节后触发。
-- 主动输出时优先给简短 proposal 摘要，不默认展开完整候选包。
-- 若用户没有要求写入，只提示“可沉淀为候选”，不得询问或暗示已经写入。
-- 若候选价值不高，只在最终回答末尾给一句轻量建议，不展开 YAML。
-- 主动触发时不要默认输出完整 YAML，避免在普通技术问答后突然插入大段候选包。
+只有当当前阶段结束，并伴随以下至少一类知识型产出时，才进入候选评估：
+
+- 推理过程产生了新的约束、边界或禁止条件。
+- 形成了明确选择、取舍或决策依据。
+- 发现了异常、失败、误判或回归原因。
+- 产生了验证结论、测试策略或证据判断。
+- 抽象出了可复用方法、规则、检查项或流程。
+
+不要在普通问答、短对话、事实解释、临时执行细节、一次性命令、路径、文件名或参数后触发。conversation-to-knowledge 的主要风险是把 `task_context` 错当成 knowledge；缺少知识型阶段事件时保持 silent。
+
+主动触发前执行三项判断：
+
+1. `candidate_value`：候选是否值得沉淀。
+   - `0`：`task_only`，只对当前请求有用。
+   - `1`：`project_local`，可能只对当前项目有用。
+   - `2`：`cross_project_candidate`，可能跨项目复用。
+   - `3`：`strong_candidate`，能形成方法、失败模式、约束、验证模式或决策启发式。
+2. `evidence_readiness`：证据是否足以支撑 proposal。
+   - `0`：弱推断或未验证假设。
+   - `1`：有对话证据，但范围、边界或风险不完整。
+   - `2`：有明确证据，并能说明适用范围与不适用边界。
+   - `3`：有证据、边界、风险、反例或验证方式，适合形成候选卡片。
+3. `scope_consistency`：候选是否与后续对话和最终结论一致。
+   - `consistent`：未被后续对话推翻，适用范围清晰，和最终结论一致。
+   - `narrowed`：后续对话收窄了适用范围，可保留但必须写明边界。
+   - `superseded`：后续对话替代了前面判断；不生成旧候选，只保留最终验证后的经验。
+   - `unresolved`：仍存在冲突、分歧或未验证假设；不主动输出候选，只可列为 `unresolved_items`。
+
+输出阈值：
+
+- `candidate_value = 0`：保持 silent。
+- `candidate_value = 1` 且 `evidence_readiness <= 1`：保持 silent。
+- `candidate_value = 1` 且 `evidence_readiness >= 2` 且 `scope_consistency = consistent|narrowed`：只在 final 末尾给一句 hint。
+- `candidate_value >= 2` 且 `evidence_readiness >= 1` 且 `scope_consistency = consistent|narrowed`：可输出简短 proposal。
+- `candidate_value >= 2` 且 `evidence_readiness >= 2` 且 `scope_consistency = consistent`：输出 1-3 条 brief proposal。
+- `candidate_value = 3` 且 `evidence_readiness >= 2` 且 `scope_consistency = consistent`：可建议整理为完整候选包，但不默认输出 YAML。
+- `scope_consistency = superseded|unresolved`：不主动输出候选；旧判断被替代时只保留最终经验，未解决冲突只记录 unresolved 或保持 silent。
+
+若用户没有要求写入，只提示“可沉淀为候选”，不得询问或暗示已经写入。
 
 ## 工作流
 
@@ -128,7 +161,14 @@ conversation_knowledge_package:
   unresolved_items: []
 ```
 
-skill 主动触发时，输出轻量提示：
+skill 主动触发时，根据门禁结果选择低打扰输出模式：
+
+- `silent`：不输出。用于普通问答、`task_only`、低证据内容、冲突未解决内容。
+- `hint`：只在 final 末尾给一句轻量提示。
+- `brief_proposal`：列 1-3 条候选，每条只包含标题、为什么值得沉淀、建议位置和主要边界。
+- `full_package`：只有用户明确要求“整理为候选包 / 输出 YAML / 准备写入”时才使用完整结构。
+
+`brief_proposal` 示例：
 
 ```text
 这次对话中有 2 条内容值得沉淀为 knowledge candidate：
