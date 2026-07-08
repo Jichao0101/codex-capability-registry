@@ -27,7 +27,7 @@ When adding, removing, renaming, or changing the ownership/source/install strate
 
 ## Runtime Strategy
 
-- Keep `/home/jichao/.agents/plugins/marketplace.json` stable when possible.
-- Link `/home/jichao/.codex/plugins/<plugin>` to `sources/submodules/<plugin>`.
-- Link only first-party embedded skills from `/home/jichao/.agents/skills/<skill>` to `skills/<skill>`.
+- Keep `$HOME/.agents/plugins/marketplace.json` stable when possible.
+- Link `$HOME/.codex/plugins/<plugin>` to `sources/submodules/<plugin>`.
+- Link only first-party embedded skills from `$HOME/.agents/skills/<skill>` to `skills/<skill>`.
 - Keep third-party skills as external runtime directories and verify them from `manifests/skills.yaml`.

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODEX_PLUGINS_DIR="${CODEX_PLUGINS_DIR:-/home/jichao/.codex/plugins}"
-AGENTS_SKILLS_DIR="${AGENTS_SKILLS_DIR:-/home/jichao/.agents/skills}"
+CODEX_PLUGINS_DIR="${CODEX_PLUGINS_DIR:-${HOME}/.codex/plugins}"
+AGENTS_SKILLS_DIR="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 
 fail() {
   echo "ERROR: $*" >&2

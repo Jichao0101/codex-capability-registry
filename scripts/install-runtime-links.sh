@@ -2,8 +2,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODEX_PLUGINS_DIR="${CODEX_PLUGINS_DIR:-/home/jichao/.codex/plugins}"
-AGENTS_SKILLS_DIR="${AGENTS_SKILLS_DIR:-/home/jichao/.agents/skills}"
+CODEX_PLUGINS_DIR="${CODEX_PLUGINS_DIR:-${HOME}/.codex/plugins}"
+AGENTS_SKILLS_DIR="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 RESTORE_THIRD_PARTY=0
 
 if [ "${1:-}" = "--restore-third-party" ]; then
@@ -39,6 +39,15 @@ skill_source_value() {
   ' "$REPO_ROOT/manifests/skills.yaml"
 }
 
+expand_user_path() {
+  local path="$1"
+  case "$path" in
+    "~") echo "$HOME" ;;
+    "~/"*) echo "${HOME}/${path#~/}" ;;
+    *) echo "$path" ;;
+  esac
+}
+
 backup_dir() {
   local base="$1"
   local stamp
@@ -71,6 +80,7 @@ restore_external_skill() {
   local dst="${AGENTS_SKILLS_DIR}/${name}"
   local backup
   backup="$(skill_source_value "$name" "restore_from")"
+  backup="$(expand_user_path "$backup")"
   if [ -L "$dst" ]; then
     rm "$dst"
   elif [ -e "$dst" ]; then

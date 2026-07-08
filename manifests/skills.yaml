@@ -124,7 +124,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-shared
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-shared
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -139,7 +139,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-openapi-explorer
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-openapi-explorer
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -154,7 +154,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-calendar
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-calendar
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -169,7 +169,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-im
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-im
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -184,7 +184,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-skill-maker
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-skill-maker
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -199,7 +199,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-whiteboard
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-whiteboard
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -214,7 +214,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-contact
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-contact
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -229,7 +229,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-doc
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-doc
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -244,7 +244,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-base
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-base
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -259,7 +259,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-drive
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-drive
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -274,7 +274,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-minutes
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-minutes
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -289,7 +289,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-vc
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-vc
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -304,7 +304,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-sheets
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-sheets
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -319,7 +319,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-wiki
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-wiki
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -334,7 +334,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-event
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-event
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -349,7 +349,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-task
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-task
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -364,7 +364,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-workflow-meeting-summary
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-workflow-meeting-summary
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -379,7 +379,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-mail
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-mail
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -394,7 +394,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/lark-workflow-standup-report
+      restore_from: ~/.agents/skills-backup-20260528134913/lark-workflow-standup-report
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
@@ -409,7 +409,7 @@ skills:
       distribution: external
       provider: local-runtime-capture
       bundled_with_registry: false
-      restore_from: /home/jichao/.agents/skills-backup-20260528134913/profile_model_pipeline_and_compare_baseline
+      restore_from: ~/.agents/skills-backup-20260528134913/profile_model_pipeline_and_compare_baseline
     install:
       strategy: install_from_provider_or_restore_backup
     verification:
