@@ -90,7 +90,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertTrue(Path(payload["output"]).is_file())
         self.assertIn(str(stale_reports[0]), payload["pruned_reports"])
 
-    def test_preflight_semantic_fix_conflict_requires_review_and_reads_source(self) -> None:
+    def test_preflight_unassessed_fix_candidate_requires_review_and_reads_source(self) -> None:
         target = self.root / "01_Knowledge/item.md"
         target.write_text("---\nstatus: verified\nprotection_level: guarded\nchange_policy: free_update\n---\n# Driver binding\n", encoding="utf-8")
         fix = self.root / "02_Projects/Demo/fixes/driver-binding-fix.md"
@@ -104,7 +104,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         data = json.loads(report.read_text())
         self.assertEqual(data["gate_decision"], "manual_review")
-        self.assertTrue(any(item["condition"] == "semantic_conflict" for item in data["triggered_rules"]))
+        self.assertTrue(any(item["condition"] == "semantic_review_needed" for item in data["triggered_rules"]))
         self.assertTrue(any(item["path"].endswith("driver-binding-fix.md") for item in data["source_documents_read"]))
         check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
@@ -135,7 +135,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(report.read_text())
         self.assertEqual(data["gate_decision"], "allow")
-        self.assertFalse(any(item["condition"] in {"semantic_conflict", "high_risk_retrieval_insufficient"} for item in data["triggered_rules"]))
+        self.assertFalse(any(item["condition"] in {"semantic_review_needed", "high_risk_retrieval_insufficient"} for item in data["triggered_rules"]))
 
     def test_preflight_requires_explicit_authorized_path(self) -> None:
         target = self.root / "03_Inbox/note.md"
@@ -421,7 +421,7 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         self.assertEqual(data["gate_decision"], "manual_review")
         self.assertTrue(data["retrieval_package_check"]["valid"])
         self.assertTrue(any(item["path"] == "02_Projects/Demo/fixes/binding-fix.md" for item in data["source_documents_read"]))
-        self.assertTrue(any(item["condition"] == "semantic_conflict" for item in data["triggered_rules"]))
+        self.assertTrue(any(item["condition"] == "semantic_review_needed" for item in data["triggered_rules"]))
 
     def test_invalid_retrieval_package_blocks_preflight(self) -> None:
         target = self.root / "02_Projects/Demo/design.md"
@@ -442,6 +442,119 @@ class KnowledgeBaseCliTest(unittest.TestCase):
         data = json.loads(report.read_text())
         self.assertEqual(data["gate_decision"], "blocked")
         self.assertFalse(data["retrieval_package_check"]["valid"])
+
+    def test_local_edit_checks_proposed_content_and_preserves_history(self) -> None:
+        target = self.root / "02_Projects/Demo/note.md"
+        draft = self.root / "draft.txt"
+        report = self.root / "minimal.json"
+        cases = [
+            ("# N\nSpeling.\n", "# N\nSpelling.\n", "modify", "allow"),
+            ("# N\nText.\n", "---\nstatus: verified\n---\n# N\nText.\n", "modify", "requires_full_preflight"),
+            ("# N\n必须验证。\n", "# N\n可以跳过验证。\n", "modify", "requires_full_preflight"),
+            ("---\nchange_policy: append_only\n---\n# N\nOld.\n", "# N\nNew.\n", "modify", "blocked"),
+            ("# N\nOld.\n", "# N\nNew.\n", "append", "blocked"),
+        ]
+        for before, after, intent, expected in cases:
+            with self.subTest(expected=expected, before=before):
+                target.write_text(before)
+                draft.write_text(after)
+                result = self.run_cli("minimal-apply-check", "--root", str(self.root),
+                    "--target", "02_Projects/Demo/note.md", "--intent", intent,
+                    "--change-class", "editorial_edit", "--proposed-file", str(draft),
+                    "--authorized-path", str(target.parent), "--output", str(report))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads(report.read_text())
+                self.assertEqual(data["gate_decision"], expected)
+                self.assertTrue(data["checks"]["proposed_content_hash"])
+                self.assertEqual(target.read_text(), before)
+                self.assertFalse((self.root / ".kb_cache").exists())
+
+    def test_local_modify_without_draft_escalates(self) -> None:
+        target = self.root / "03_Inbox/note.md"
+        target.write_text("# Note\n")
+        report = self.root / "minimal.json"
+        result = self.run_cli("minimal-apply-check", "--root", str(self.root),
+            "--target", "03_Inbox/note.md", "--intent", "modify", "--change-class", "editorial_edit",
+            "--authorized-path", str(target.parent), "--output", str(report), "--strict-exit-code")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(json.loads(report.read_text())["gate_decision"], "requires_full_preflight")
+
+    def test_direct_evidence_validates_originals_without_index(self) -> None:
+        target = self.root / "02_Projects/Demo/design.md"
+        target.write_text("# Design\n")
+        source = self.root / "02_Projects/Demo/validation.md"
+        source.write_text("# Validation\nObserved result: 12.\n")
+        assessment = self.root / "assessment.json"
+        report = self.root / "preflight.json"
+        base = {"claims": [{"change": "Add measured result", "path": "02_Projects/Demo/validation.md",
+                "quote": "Observed result: 12.", "reason": "The experiment measured this value"}],
+                "constraints": [], "limitations": []}
+        for variant, expected in [("valid", "allow"), ("quote", "blocked"), ("path", "blocked"), ("forbidden", "blocked"),
+                                  ("gap", "manual_review"), ("conflict", "manual_review")]:
+            with self.subTest(variant=variant):
+                data = json.loads(json.dumps(base))
+                if variant == "quote":
+                    data["claims"][0]["quote"] = "Invented evidence"
+                elif variant == "path":
+                    data["claims"][0]["path"] = "01_Knowledge/private.md"
+                elif variant == "gap":
+                    data["limitations"] = ["Missing production validation"]
+                elif variant == "conflict":
+                    data["constraints"] = [{"path": "02_Projects/Demo/validation.md", "quote": "Observed result: 12.",
+                        "disposition": "conflict", "reason": "The new claim contradicts this result"}]
+                assessment.write_text(json.dumps(data))
+                result = self.run_cli("preflight", "--root", str(self.root),
+                    "--target", "02_Projects/Demo/design.md", "--intent", "modify", "--change-class", "semantic_fact_update",
+                    "--authorized-path", str(target.parent), "--evidence-assessment", str(assessment), "--output", str(report),
+                    *(["--forbidden-path", str(source)] if variant == "forbidden" else []))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                output = json.loads(report.read_text())
+                self.assertEqual(output["gate_decision"], expected)
+                self.assertFalse((self.root / ".kb_cache").exists())
+                self.assertEqual(output["semantic_coverage"], "agent_assessed_not_machine_proven")
+                if variant == "valid":
+                    check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
+                    self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+                    source.write_text("# Validation\nObserved result: 13.\n")
+                    check = self.run_cli("hash-check", "--root", str(self.root), "--report", str(report))
+                    self.assertEqual(check.returncode, 4, check.stdout + check.stderr)
+                    source.write_text("# Validation\nObserved result: 12.\n")
+
+    def test_trace_hit_is_candidate_not_proven_conflict(self) -> None:
+        target = self.root / "02_Projects/Demo/design.md"
+        target.write_text("# Design\n")
+        fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
+        fix.write_text("# Binding fix\nKeep driver binding.\n")
+        assessment = self.root / "assessment.json"
+        assessment.write_text(json.dumps({
+            "claims": [{"change": "Explain driver binding", "path": "02_Projects/Demo/fixes/binding-fix.md",
+                "quote": "Keep driver binding.", "reason": "Explains the existing constraint"}],
+            "constraints": [{"path": "02_Projects/Demo/fixes/binding-fix.md", "quote": "Keep driver binding.",
+                "disposition": "preserved", "reason": "No change to binding behavior"}], "limitations": []}))
+        report = self.root / "preflight.json"
+        result = self.run_cli("preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
+            "--intent", "modify", "--query", "driver binding", "--authorized-path", str(target.parent),
+            "--evidence-assessment", str(assessment), "--output", str(report))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(report.read_text())
+        self.assertTrue(output["matched_trace_records"])
+        self.assertEqual(output["semantic_conflicts"], [])
+        self.assertEqual(output["unresolved_review_candidates"], [])
+        self.assertEqual(output["gate_decision"], "allow")
+
+    def test_read_paths_alone_do_not_establish_high_risk_coverage(self) -> None:
+        target = self.root / "02_Projects/Demo/design.md"
+        target.write_text("# Design\n")
+        fix = self.root / "02_Projects/Demo/fixes/binding-fix.md"
+        fix.write_text("# Binding fix\nKeep binding.\n")
+        report = self.root / "preflight.json"
+        result = self.run_cli("preflight", "--root", str(self.root), "--target", "02_Projects/Demo/design.md",
+            "--intent", "modify", "--change-class", "protected_rewrite", "--query", "binding",
+            "--authorized-path", str(target.parent), "--output", str(report))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(report.read_text())
+        self.assertTrue(output["source_documents_read"])
+        self.assertTrue(any(r["condition"] == "high_risk_retrieval_insufficient" for r in output["triggered_rules"]))
 
 
 if __name__ == "__main__":

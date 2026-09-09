@@ -1,127 +1,48 @@
 ---
 name: knowledge-base-structure-builder
-description: Build, migrate, maintain, lint, and preflight structured Markdown knowledge bases. Use when initializing or restructuring a knowledge base, maintaining overview/index files and project current groups, deciding candidate/source/project/knowledge placement, auditing metadata and links, building a traceability index, or preventing guarded facts, fixes, constraints, and supersession history from being silently overwritten.
+description: Build or maintain Markdown knowledge-base structure, indexes and current document groups; assess evidence and write risk for changes to established knowledge. Use for migrations, structural maintenance and substantive fact changes, not routine note formatting.
 ---
 
 # Knowledge Base Structure Builder
 
-Use this skill for knowledge-base structure work, not for ordinary note writing. It supports three modes:
+Help the agent make evidence-supported changes with the least process needed for the actual semantic impact. The vault's `AGENTS.md` defines authorization and knowledge policy; this skill supplies methods and tools, not additional permission.
 
-- **Bootstrap**: create a structured knowledge base from an empty or nearly empty directory.
-- **Migration**: classify and structure an existing unformatted note collection.
-- **Maintenance**: update an already structured knowledge base, including overview sync and current document groups.
+## Before changing content
 
-## First Step: Diagnose Mode
+- Identify the authorized targets, intended changes and current fact source. Start at the nearest relevant overview when needed; reuse context already read in this task. Do not traverse every parent entry by default.
+- Read the target and original evidence relevant to the change. Expand retrieval along affected claims, entities, references and discovered constraints. Historical files can provide evidence but do not supersede a current entry merely because they were found first.
+- Stop expanding retrieval when changed claims have direct support, discovered conflicts are addressed and remaining gaps do not affect this change. No search hit is not evidence that no constraint exists. Do not claim whole-vault coverage from a scoped search.
+- Choose retrieval tools freely. A Retriever package or trace index is optional recall assistance; original Markdown remains the evidence. Reuse fresh evidence instead of repeating a workflow for its own sake.
 
-Before editing, inspect only authorized paths and answer:
+## Match checks to impact
 
-1. Is there a top-level entry such as `README.md`?
-2. Are standard zones present: `01_Knowledge`, `02_Projects`, `03_Inbox`, `04_Sources`, `90_Archive`?
-3. Are there overview/index files for knowledge, projects, inbox, sources, and structure audit?
-4. Are project modules using `overview_current` or module indexes?
-5. Are there many orphan Markdown files, external-source notes, or project-bound records?
+| Actual change | Required work |
+|---|---|
+| Spelling, formatting, path repair | Read target; check scope and proposed diff; validate affected links. No historical search by default. |
+| Explanation or local project fact addition | Read target and direct sources; explain support and check relevant constraints. Escalate if it changes an established conclusion or protected fact. |
+| Same-vault relocation or index path sync | Check both source and destination authorization, preserve content and placement semantics, record moves, update affected links. |
+| Conclusion replacement, current fact-source change, protected fact rewrite, promotion, evidence/status change, semantic deletion or supersession | Assess changed claims, supporting originals and counterevidence; run full preflight and satisfy the vault's review requirements. |
 
-Select one mode:
+For CLI checks, read [governance-tools.md](references/governance-tools.md). A command's `allow` means its mechanical checks passed; it does not prove semantic correctness or override repository policy. Review the proposed diff before applying and the actual diff afterward. If impact exceeds the declared class, reclassify and check before writing; if discovered afterward, stop dependent work and repair the unintended change.
 
-| Condition | Mode | Reference |
-|---|---|---|
-| No standard zones or no entry files | Bootstrap | `references/bootstrap.md` |
-| Existing notes but no reliable structure | Migration | `references/migration.md` |
-| Standard zones and entries exist | Maintenance | `references/maintenance.md` |
-| Project current group is requested or implied | Current lifecycle | `references/current-lifecycle.md` |
+Preserve append-only history. Never silently replace conclusions, promote unreviewed external material, or assert verification that was not performed. Protected document labels trigger closer inspection of affected facts, not blanket confirmation for unrelated typography, unless local policy is stricter.
 
-## Core Rules
+Resolve missing evidence through authorized reading and retrieval first. Escalate to the user only for unavailable authorization/evidence or decisions the existing authorization does not cover. Existing explicit approval can satisfy review only for the same concrete change and evidence snapshot; it cannot override blockers or authorize a different conflict resolution.
 
-- Read entry files first when they exist: `README.md`, knowledge overview, project overview, module index, `overview_current`, inbox index, source index, structure audit.
-- Do not directly start from historical records, run artifacts, baseline files, or random notes unless the user asks for historical trace.
-- When using template assets, replace all placeholders such as `YYYY-MM-DD`, `TBD`, and English default names that do not match the local naming convention before considering the write complete.
-- External information must first go to candidate/source zones, not formal knowledge.
-- Formal knowledge needs at least: summary, source, scope, risks/boundaries, status.
-- Project-bound material stays in project space until abstracted and reviewed.
-- For current groups, never set `single_pass_recoverable: true` without independent recoverability verification.
-- Any write that changes entries, scope, status, current fact source, placement, or recoverability must sync the relevant overview/index/audit file.
-- In Migration mode, structured placement under the standard zones is the primary output. Keeping `raw/` is only a traceability measure and does not replace arranging documents in the new structure.
+## Structure and placement
 
-## Retriever Handoff
+Respect the vault's established layout. Project-specific work stays in projects; external raw evidence in sources; unreviewed material in candidates; reviewed reusable knowledge with source, scope and boundaries in formal knowledge.
 
-Retriever may be used during problem analysis to gather evidence about where a problem belongs. Builder does not ask Retriever to choose a write location, but when a task provides a `retrieval_package`, Builder can use it as write-side evidence. Builder only needs to know:
+Load only the references needed:
 
-- whether the package exists and was generated for the current task
-- which `authorized_paths` it covers
-- which `source_sections_read` were read from original Markdown
-- which `recall_limitations` remain
+- Empty vault: [bootstrap.md](references/bootstrap.md).
+- Unstructured collection: [migration.md](references/migration.md).
+- Existing structure/index maintenance: [maintenance.md](references/maintenance.md).
+- Current module lifecycle: [current-lifecycle.md](references/current-lifecycle.md).
+- Placement or metadata questions: [placement-rules.md](references/placement-rules.md), [metadata-schema.md](references/metadata-schema.md).
 
-Builder must not depend on Retriever internals, rerun Retriever's query planning, or treat candidate summaries as facts. Candidate decisions, constraints, fixes, supersessions, and placement signals are evidence hints until the cited Markdown sections are read under the target vault policy.
+Update entries whose navigation, scope, status or current fact source changes. Do not rewrite an entire current group for one changed fact, or create a five-file group for a small module. Preserve a supported recoverability assertion only while its verification remains applicable; never add or raise it without independent verification.
 
-## Governance Workflow
+## Finish
 
-Treat the target vault's `AGENTS.md` as policy authority. Keep this skill's workflow, `rules/`, and `scripts/` version-bound; do not create a second repo-level implementation unless an independent CI, CLI, agent, or skill consumer exists.
-
-Use gate granularity by change class, not by whether Retriever was run:
-
-- Proposal-only report generation, including `retrieval-summary-proposals`, does not require trace-index, preflight, or hash-check because it does not edit Markdown.
-- Low-risk non-fact apply operations, such as appending a `Retrieval Summary` to an original fix/decision/validation/incident record, use `minimal-apply-check` immediately before editing Markdown. They do not block merely because no historical retrieval was run.
-- Target type is a caution signal, not a review decision. `current`, `guarded`, `critical`, `verified`, and entry files do not require confirmation by themselves.
-- Full semantic preflight is whitelist-only for high-risk semantic change classes: current group structural updates, formal knowledge promotion, external-source promotion, supersession, conclusion replacement, protected rewrites, semantic/protected delete, metadata/status changes, and evidence-level changes.
-- Structure-only changes such as same-vault regrouping, candidate folder organization, project document relocation, archive moves, and path-only index sync use a scope check plus post-write lint. They do not require trace-index, source-section reads, or hash-check unless the task also changes conclusions, current fact sources, metadata/status/evidence level, promotion state, or supersession relationships.
-- Require `manual_review` or block only when preflight finds a concrete semantic conflict, retrieval/source coverage is insufficient for a high-risk semantic change, high-risk fields are being changed, or the operation is replacement, formal promotion, semantic delete, protected delete, or supersession.
-- No retrieval hit is never a safety proof. For high-risk change classes, insufficient retrieval/source evidence means `manual_review` or proposal-only output, not silent allow.
-
-For low-risk apply:
-
-1. Read the target and enough local context to ensure the proposed summary is supported by the document itself.
-2. Run `python3 scripts/kb.py minimal-apply-check --root <vault> --target <path> --intent append --change-class retrieval_summary_append --authorized-path <path>`.
-3. Apply only the checked append when the decision is `allow`; if the decision is `requires_full_preflight`, switch to the full workflow.
-4. Run read-only `lint` after the write and sync entries only when placement, scope, status, current fact source, or recoverability changed.
-
-For structure-only relocation or path sync:
-
-1. Read authorized entries and the relevant overview/index.
-2. Run `minimal-apply-check` with a structure change class such as `structure_relocate`, `archive_move`, or `index_path_sync` to validate policy readability, authorized/forbidden paths, target readability, and target hash snapshot. Directory targets are valid for these structure change classes.
-3. Apply the move or path-only sync, then run read-only `lint` and update required entries/indexes/audit records.
-4. Do not use trace-index results or an empty retrieval result as proof of semantic safety; if the change replaces a conclusion, promotes formal knowledge, alters current fact sources, or changes metadata/status/evidence level, switch to full semantic preflight.
-
-For full semantic preflight whitelist changes:
-
-1. Read authorized entries and the relevant project/module overview.
-2. Build or refresh the trace index with `python3 scripts/kb.py trace-index --root <vault> --authorized-path <path>`.
-3. Run `python3 scripts/kb.py preflight` for each target; pass the policy file plus explicit `--authorized-path` and policy-derived `--forbidden-path` values.
-4. For `blocked`, do not write. For `manual_review`, prepare a proposal or patch draft and obtain explicit review. For `allow`, apply only the declared intent. Do not convert an empty retrieval result into proof that no guarded facts, fixes, constraints, or supersessions exist.
-5. Run `hash-check` only when strict concurrency evidence is needed, such as CI, long-running tasks, multi-agent edits, protected/current semantic rewrites, or explicit user request. By default, hash-check is not mandatory for single-agent local maintenance.
-6. After writing, run read-only `lint`, remove stale lint reports from the same report directory, and perform required overview/index sync.
-
-Read `references/governance-tools.md` before using lint, trace, retrieval-summary proposal, or gate commands. Machine decisions live in `rules/`; do not infer a more permissive result than the CLI. Reports under `<vault>/reports/kb/` and caches under `<vault>/.kb_cache/` are derived artifacts, not fact sources.
-
-## Placement Quick Guide
-
-- `01_Knowledge/`: reviewed reusable knowledge with clear scope and risks.
-- `02_Projects/`: project-specific requirements, designs, experiments, implementation notes, decisions, current groups.
-- `03_Inbox/`: unreviewed candidates, temporary excerpts, unclear placement.
-- `04_Sources/`: original source notes, evidence cards, external reading notes.
-- `90_Archive/`: frozen, obsolete, or historical material.
-
-For detailed placement and metadata, read `references/placement-rules.md` and `references/metadata-schema.md`.
-
-## Output Checklist
-
-End knowledge-base write tasks with:
-
-- `allowed_paths`
-- `files_read`
-- `files_written`
-- `candidate_created`
-- `source_notes_created`
-- `promoted_to_knowledge`
-- `missing_authorization`
-- `promotion_blockers`
-- `unresolved_items`
-
-## Self-Check
-
-Before finishing, run a lightweight structure check:
-
-- standard zones and entry files exist for the selected mode
-- no unresolved template placeholders remain except intentional `TBD` entries listed in unresolved items
-- indexes/overviews mention files created, moved, archived, or status-changed
-- migration work places documents under the new structure and preserves raw traceability until the user explicitly approves cleanup
-- current groups keep `single_pass_recoverable: false` unless recoverability verification was independently performed
+Check the actual changes and run relevant validation. Use scoped lint for structural edits; do not scan unrelated directories for a local prose repair. Report changed files, evidence, checks and unresolved limitations concisely. Mention access scope and candidate/source/promotion placement when relevant; omit empty boilerplate fields. Reports and caches are disposable derived artifacts, not fact sources.

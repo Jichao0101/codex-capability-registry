@@ -4,11 +4,7 @@ Use Maintenance mode when the knowledge base already has zones and entry files.
 
 ## Read Order
 
-1. Top-level entry.
-2. Relevant zone overview.
-3. Relevant project or topic overview.
-4. Module index or `overview_current`.
-5. Only then read detailed source notes, records, or historical files.
+Start at the nearest relevant entry that establishes the current fact source. Reuse fresh context already read in this task; do not require a top-down traversal for every edit. Expand to source records and history according to changed claims, dependencies and discovered constraints.
 
 ## Write-After-Sync Rules
 

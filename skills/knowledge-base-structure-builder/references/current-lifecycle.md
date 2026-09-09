@@ -25,7 +25,7 @@ Do not create current groups for temporary notes or one-off records; use a modul
 
 ## Standard Current Set
 
-Use local naming conventions, but the roles are:
+Use local naming conventions. These are information roles, not a mandatory file count; combine them for small modules and split only when maintenance benefits:
 
 - `overview_current`: default entry, scope, read order, truth source, recoverability
 - `design_current`: goals, non-goals, boundaries, decisions, risks
@@ -36,7 +36,7 @@ Use local naming conventions, but the roles are:
 ## Hard Stops
 
 - Do not default to full rewrite.
-- Do not mark `single_pass_recoverable: true` without independent recoverability verification.
+- Do not add or raise `single_pass_recoverable: true` without independent recoverability verification. Preserve an existing assertion only when its evidence is traceable and remains applicable to the change.
 - Do not treat historical records, run artifacts, or baseline files as current truth when an overview current exists.
 - Put maintenance records under `Current Maintenance Records/`.
 

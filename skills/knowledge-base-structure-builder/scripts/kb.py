@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import difflib
 import fnmatch
 import hashlib
 import json
@@ -15,7 +16,7 @@ import subprocess
 import sys
 from typing import Any, Iterable
 
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 RULES_ROOT = SKILL_ROOT / "rules"
 DECLARED_FIELDS = {
@@ -41,6 +42,7 @@ FULL_PREFLIGHT_CHANGE_CLASSES = {
     "supersession",
     "conclusion_replacement",
     "protected_rewrite",
+    "semantic_fact_update",
     "metadata_status_change",
     "evidence_level_change",
     "semantic_delete",
@@ -54,9 +56,11 @@ REPLACEMENT_DELETE_PROMOTION_CLASSES = {
     "conclusion_replacement",
     "semantic_delete",
     "protected_delete",
+    "protected_rewrite",
 }
 STRUCTURE_SCOPE_CHANGE_CLASSES = {"structure_relocate", "index_path_sync", "archive_move"}
-SEMANTIC_CONFLICT_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
+LOCAL_CHANGE_CLASSES = {"editorial_edit", "local_fact_update", "retrieval_summary_append"}
+SEMANTIC_REVIEW_RECORD_TYPES = {"fix", "decision", "validation", "incident"}
 
 
 class GovernanceError(RuntimeError):
@@ -989,7 +993,7 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
     condition_values = {
         "target_forbidden": context["target_forbidden"],
         "target_unreadable": context["target_unreadable"],
-        "semantic_conflict": bool(context["semantic_conflicts"]),
+        "semantic_review_needed": bool(context["semantic_review_needed"]),
         "high_risk_field_change": context["change_class"] in HIGH_RISK_FIELD_CHANGE_CLASSES,
         "replacement_delete_or_promotion": (
             (context["intent"] == "delete" and not context["structure_scope_change"])
@@ -1006,7 +1010,7 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
         ),
         "strong_record_unread": any(r["signal_strength"] == "strong" and r["path"] not in context["read_paths"] for r in context["matches"]),
         "protected_source_unread": any(r["effective"].get("protection_level") in {"guarded", "critical"} and r["path"] not in context["read_paths"] for r in context["matches"]),
-        "high_risk_retrieval_insufficient": context["high_risk_change"] and not context["read_paths"],
+        "high_risk_retrieval_insufficient": context["high_risk_change"] and not context.get("evidence_sufficient", False),
         "supersession_conflict": bool(context["supersession_conflicts"]),
         "only_weak_records": bool(context["matches"]) and all(r["signal_strength"] == "weak" for r in context["matches"]),
         "default_allow": True,
@@ -1025,20 +1029,20 @@ def evaluate_gate(context: dict[str, Any]) -> tuple[str, list[dict[str, Any]], b
     return decision, triggered, validation_required
 
 
-def semantic_conflict_records(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    conflicts = []
+def semantic_review_candidates(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = []
     for record in matches:
-        if record["record_type"] not in SEMANTIC_CONFLICT_RECORD_TYPES:
+        if record["record_type"] not in SEMANTIC_REVIEW_RECORD_TYPES:
             continue
         if not record.get("matched_terms") and record.get("source") != "retrieval_package":
             continue
-        conflicts.append({
+        candidates.append({
             "path": record["path"],
             "record_type": record["record_type"],
             "matched_terms": record.get("matched_terms", []),
             "source": record.get("source", "trace_index"),
         })
-    return conflicts
+    return candidates
 
 
 def load_or_build_trace(root: Path, override: str | None = None, authorized: list[Path] | None = None) -> dict[str, Any]:
@@ -1077,6 +1081,55 @@ def target_metadata(root: Path, target: Path) -> dict[str, Any]:
     }
 
 
+def check_evidence_assessment(root: Path, filename: str, authorized: list[Path], forbidden: list[Path]) -> dict[str, Any]:
+    """Verify citations mechanically; the agent remains responsible for semantic coverage."""
+    assessment = load_json_file(filename)
+    errors = []
+    reads = []
+    claims = assessment.get("claims", [])
+    constraints = assessment.get("constraints")
+    limitations = assessment.get("limitations")
+    if not isinstance(claims, list) or not claims:
+        errors.append("claims must contain the changed facts and their evidence")
+        claims = []
+    if not isinstance(constraints, list):
+        errors.append("constraints must be a list")
+        constraints = []
+    if not isinstance(limitations, list):
+        errors.append("limitations must be an explicit list")
+    for item in claims + constraints:
+        if not isinstance(item, dict):
+            errors.append("evidence entries must be objects")
+            continue
+        rel = item.get("path", "")
+        if not isinstance(rel, str) or not rel:
+            errors.append("evidence path is required")
+            continue
+        path = (root / rel).resolve()
+        if root not in path.parents or path.suffix.lower() != ".md" or not is_authorized(path, authorized) or is_authorized(path, forbidden):
+            errors.append(f"unauthorized evidence: {rel}")
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            errors.append(f"unreadable evidence: {rel}")
+            continue
+        quote = item.get("quote")
+        if not isinstance(quote, str) or not quote.strip() or quote not in raw.decode("utf-8", errors="replace"):
+            errors.append(f"missing or unmatched quote: {rel}")
+        if not isinstance(item.get("reason"), str) or not item["reason"].strip():
+            errors.append(f"missing relevance reasoning: {rel}")
+        if item in claims and not item.get("change"):
+            errors.append(f"missing changed claim: {rel}")
+        if item in constraints and item.get("disposition") not in ("preserved", "irrelevant", "conflict"):
+            errors.append(f"invalid constraint disposition: {rel}")
+        reads.append({"path": path.relative_to(root).as_posix(), "document_hash": sha256_bytes(raw),
+                      "sections_read": [], "reason": "explicit evidence citation", "read_at": utc_now()})
+    return {"assessment": assessment, "errors": errors, "source_reads": reads,
+            "sufficient": not errors and not limitations,
+            "semantic_coverage": "agent_assessed_not_machine_proven"}
+
+
 def cmd_preflight(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     target = (root / args.target).resolve(strict=False)
@@ -1103,7 +1156,15 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         package = load_json_file(args.retrieval_package)
         package_check = check_retrieval_package(root, package, authorized)
         package_source_paths = package_check["source_sections_read"]
-    index = load_or_build_trace(root, args.trace_index, authorized)
+    # Explicit evidence supports direct retrieval without a mandatory trace-index build.
+    evidence_check = check_evidence_assessment(root, args.evidence_assessment, authorized,
+                                              [Path(p).resolve() for p in args.forbidden_path]) if args.evidence_assessment else None
+    needs_supersession_trace = (args.intent == "supersede" or args.replaces_conclusion
+                               or args.supersedes or args.change_class in {"supersession", "conclusion_replacement"})
+    if evidence_check and not (args.query or args.trace_index or args.retrieval_package or needs_supersession_trace):
+        index = {"records": [], "supersession_cycles": [], "vault_fingerprint": None}
+    else:
+        index = load_or_build_trace(root, args.trace_index, authorized)
     matches, terms = match_trace_records(index, target_rel, args.query, args.limit, package_source_paths)
     source_reads = []
     read_errors = []
@@ -1119,9 +1180,16 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             source_reads.append(section_read_evidence(root, record, terms))
         except OSError as exc:
             read_errors.append({"path": record["path"], "error": str(exc)})
+    if evidence_check:
+        source_reads.extend(evidence_check["source_reads"])
     read_paths = {item["path"] for item in source_reads}
     conflicts = index.get("supersession_cycles", [])
-    semantic_conflicts = semantic_conflict_records(matches)
+    review_candidates = semantic_review_candidates(matches)
+    dispositions = evidence_check["assessment"].get("constraints", []) if evidence_check else []
+    dispositions = [item for item in dispositions if isinstance(item, dict)] if isinstance(dispositions, list) else []
+    resolved = {item.get("path") for item in dispositions if isinstance(item.get("path"), str) and item.get("disposition") in ("preserved", "irrelevant")}
+    semantic_conflicts = [item for item in dispositions if item.get("disposition") == "conflict"]
+    unresolved_candidates = [item for item in review_candidates if item["path"] not in resolved]
     context = {
         "target_forbidden": target_forbidden,
         "target_unreadable": target_unreadable,
@@ -1138,12 +1206,16 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         "matches": matches,
         "read_paths": read_paths,
         "supersession_conflicts": conflicts,
-        "semantic_conflicts": semantic_conflicts,
+        "semantic_review_needed": semantic_conflicts or unresolved_candidates,
+        "evidence_sufficient": bool(evidence_check and evidence_check["sufficient"]),
     }
     decision, triggered, validation_required = evaluate_gate(context)
     if package_check and not package_check["valid"]:
         decision = "blocked"
         triggered.append({"rule_id": "KB-GATE-013", "condition": "invalid_retrieval_package", "decision": "blocked"})
+    if evidence_check and evidence_check["errors"]:
+        decision = "blocked"
+        triggered.append({"rule_id": "KB-GATE-014", "condition": "invalid_evidence_assessment", "decision": "blocked"})
     if read_errors:
         decision = "blocked"
         triggered.append({"rule_id": "KB-GATE-008", "condition": "source_read_error", "decision": "blocked"})
@@ -1181,6 +1253,9 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             if any(re.search(r"constraints?|约束|必须|不得", section["heading"], re.I) for section in read["sections_read"])
         ],
         "semantic_conflicts": semantic_conflicts,
+        "unresolved_review_candidates": unresolved_candidates,
+        "evidence_assessment_check": evidence_check,
+        "semantic_coverage": "agent_assessed_not_machine_proven",
         "potentially_overwritten_fixes": [item["path"] for item in matches if item["record_type"] == "fix"],
         "required_validations": [],
         "authorization_gaps": ([target_rel] if target_forbidden else []) + ([str(policy_file)] if policy_unreadable else []),
@@ -1267,17 +1342,34 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
     full_preflight_reasons = []
     if args.change_class in FULL_PREFLIGHT_CHANGE_CLASSES:
         full_preflight_reasons.append(f"change_class:{args.change_class}")
-    if args.intent not in {"append", "create"} and not is_structure_scope_change(args.change_class):
+    if args.intent not in {"append", "create"} and not is_structure_scope_change(args.change_class) and not (args.intent == "modify" and args.change_class in LOCAL_CHANGE_CLASSES):
         full_preflight_reasons.append(f"intent:{args.intent}")
     if args.replaces_conclusion:
         full_preflight_reasons.append("replaces_conclusion")
     if args.supersedes:
         full_preflight_reasons.append("supersedes")
-    target_hashes = []
+    proposed_hash = None
+    append_violation = False
+    if args.intent == "modify" and args.change_class in LOCAL_CHANGE_CLASSES and not args.proposed_file:
+        full_preflight_reasons.append("proposed_file_required_for_local_modify")
+    if effective.get("change_policy") == "append_only" and args.intent in {"modify", "delete", "supersede"} and not is_structure_scope_change(args.change_class):
+        append_violation = True
+    if args.proposed_file and not target_forbidden and not target_unreadable:
+        proposed = Path(args.proposed_file).read_bytes()
+        before = target.read_bytes() if target.is_file() else b""
+        proposed_hash = sha256_bytes(proposed)
+        if args.intent == "append" and not proposed.startswith(before):
+            append_violation = True
+        old_text, new_text = before.decode("utf-8"), proposed.decode("utf-8")
+        if parse_frontmatter(old_text) != parse_frontmatter(new_text):
+            full_preflight_reasons.append("metadata_changed_in_proposed_content")
+        changed_lines = "\n".join(line[1:] for line in difflib.ndiff(old_text.splitlines(), new_text.splitlines()) if line[:2] in {"+ ", "- "})
+        if re.search(r"single_pass_recoverable|supersed|evidence_level|事实源|必须|不得|约束|\bmust\b|\bconstraint", changed_lines, re.I):
+            full_preflight_reasons.append("constraint_or_protected_field_changed_in_proposed_content")
     target_files, target_hashes = target_snapshot(root, target, target_rel, args.change_class)
 
     decision = "allow"
-    if target_forbidden or target_unreadable:
+    if target_forbidden or target_unreadable or append_violation:
         decision = "blocked"
     elif full_preflight_reasons:
         decision = "requires_full_preflight"
@@ -1309,6 +1401,9 @@ def cmd_minimal_apply_check(args: argparse.Namespace) -> int:
             "target_in_authorized_scope": bool(authorized) and is_authorized(target, authorized),
             "target_in_forbidden_scope": any(is_authorized(target, [path]) for path in forbidden),
             "target_readable_or_creatable": not target_unreadable,
+            "proposed_content_hash": proposed_hash,
+            "append_only_violation": append_violation,
+            "semantic_diff_review_required": True,
             "trace_index_used": False,
             "source_documents_read": False,
             "full_preflight_required": bool(full_preflight_reasons),
@@ -1363,6 +1458,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--policy-file", help="policy authority; defaults to <root>/AGENTS.md")
     preflight.add_argument("--query", default="")
     preflight.add_argument("--retrieval-package", help="path to Retriever retrieval_package JSON to validate and use as source-section hints")
+    preflight.add_argument("--evidence-assessment", help="JSON with changed claims, original citations, constraint dispositions and limitations")
     preflight.add_argument("--change-class", default="unspecified")
     preflight.add_argument("--change-summary", default="")
     preflight.add_argument("--supersedes", action="append", default=[])
@@ -1379,6 +1475,7 @@ def build_parser() -> argparse.ArgumentParser:
     minimal.add_argument("--root", required=True)
     minimal.add_argument("--target", required=True)
     minimal.add_argument("--intent", choices=("create", "append", "modify", "delete", "supersede"), required=True)
+    minimal.add_argument("--proposed-file", help="complete proposed target content; required for local modify")
     minimal.add_argument("--change-class", required=True)
     minimal.add_argument("--authorized-path", action="append", default=[], help="repeat for every explicitly authorized root")
     minimal.add_argument("--forbidden-path", action="append", default=[], help="repeat for policy-forbidden roots resolved by the workflow")
